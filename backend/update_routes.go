@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -10,19 +11,28 @@ import (
 )
 
 func updateGeodata() error {
+	hashZip, err := getGeoDataHash()
+	if err != nil {
+		return fmt.Errorf("failed to fetch geodata hash: %v", err)
+	}
+
+	err = downloadWithVerification("https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/rules.zip", "/tmp/rules.zip", hashZip)
+	if err != nil {
+		return fmt.Errorf("geodata validation failed: %v", err)
+	}
+
 	cmds := [][]string{
-		{"wget", "-qO", "/usr/local/bin/geosite_cn.txt", "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/direct-list.txt"},
-		{"wget", "-qO", "/usr/local/bin/geoip.dat", "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"},
-		{"cp", "/usr/local/bin/geosite_cn.txt", "/root/proxygw/core/mosdns/"},
-		{"cp", "/usr/local/bin/geoip.dat", "/root/proxygw/core/mosdns/"},
+		{"unzip", "-qo", "/tmp/rules.zip", "direct-list.txt", "geoip.dat", "-d", "/tmp/"},
+		{"cp", "/tmp/direct-list.txt", "/root/proxygw/core/mosdns/geosite_cn.txt"},
+		{"cp", "/tmp/geoip.dat", "/root/proxygw/core/mosdns/geoip.dat"},
 	}
 	for _, c := range cmds {
 		if err := exec.Command(c[0], c[1:]...).Run(); err != nil {
-			return err
+			return fmt.Errorf("extraction/copy failed: %v", err)
 		}
 	}
 	if err := exec.Command("systemctl", "restart", "mosdns", "xray").Run(); err != nil {
-		return err
+		return fmt.Errorf("service restart failed: %v", err)
 	}
 	cacheMutex.Lock()
 	cachedGeosite = nil
@@ -75,13 +85,19 @@ func registerUpdateRoutes(api *gin.RouterGroup) {
 				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid version"})
 				return
 			}
+			hash, err := getXrayHash(req.Version)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to fetch hash"})
+				return
+			}
 
 			if err := exec.Command("cp", "/usr/local/bin/xray", "/usr/local/bin/xray.bak").Run(); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "backup failed"})
 				return
 			}
-			if err := exec.Command("wget", "-qO", "/tmp/xray.zip", downloadURL).Run(); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "download failed"})
+
+			if err := downloadWithVerification(downloadURL, "/tmp/xray.zip", hash); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fmt.Sprintf("xray validation failed: %v", err)})
 				return
 			}
 			if err := exec.Command("unzip", "-qo", "/tmp/xray.zip", "-d", "/tmp/xray").Run(); err != nil {

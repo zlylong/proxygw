@@ -53,6 +53,15 @@ Restart=on-failure
 RestartSec=5
 LimitNOFILE=1048576
 
+# Security Sandboxing
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr
+
 [Install]
 WantedBy=multi-user.target
 EOF

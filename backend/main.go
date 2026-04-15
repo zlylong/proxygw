@@ -334,11 +334,11 @@ func cronUpdater() {
 		db.QueryRow("SELECT value FROM settings WHERE key='cron_enabled'").Scan(&enabled)
 		if enabled == "true" {
 			log.Println("Running daily cron update for GeoData...")
-			exec.Command("sh", "-c", "wget -qO /usr/local/bin/geosite_cn.txt https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/direct-list.txt && wget -qO /usr/local/bin/geoip.dat https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat && cp /usr/local/bin/geosite_cn.txt /root/proxygw/core/mosdns/ && cp /usr/local/bin/geoip.dat /root/proxygw/core/mosdns/ && systemctl restart mosdns xray").Run()
-			cacheMutex.Lock()
-			cachedGeosite = nil
-			cachedGeoip = nil
-			cacheMutex.Unlock()
+			if err := updateGeodata(); err != nil {
+				log.Printf("[SECURITY] Cron update failed: %v", err)
+			} else {
+				log.Println("Cron update for GeoData completed securely.")
+			}
 		}
 	}
 }

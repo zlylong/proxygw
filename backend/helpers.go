@@ -1,9 +1,14 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -97,4 +102,100 @@ func isTrustedOrigin(origin, host string) bool {
 	originHost := strings.Split(u.Host, ":")[0]
 	requestHost := strings.Split(host, ":")[0]
 	return originHost != "" && requestHost != "" && strings.EqualFold(originHost, requestHost)
+}
+
+func getRemoteFileContent(urlStr string) (string, error) {
+	resp, err := http.Get(urlStr)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("status %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(resp.Body)
+	return string(b), err
+}
+
+func verifySHA256(filePath, expectedHash string) error {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	actual := hex.EncodeToString(h.Sum(nil))
+	if !strings.EqualFold(actual, expectedHash) {
+		return fmt.Errorf("hash mismatch: expected %s, got %s", expectedHash, actual)
+	}
+	return nil
+}
+
+func getGeoDataHash() (string, error) {
+	urlStr := "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/rules.zip.sha256sum"
+	content, err := getRemoteFileContent(urlStr)
+	if err != nil {
+		return "", err
+	}
+	parts := strings.Fields(content)
+	if len(parts) > 0 {
+		return parts[0], nil
+	}
+	return "", fmt.Errorf("invalid hash file")
+}
+
+func getXrayHash(version string) (string, error) {
+	urlStr := ""
+	if version == "" || version == "latest" {
+		urlStr = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip.dgst"
+	} else {
+		urlStr = fmt.Sprintf("https://github.com/XTLS/Xray-core/releases/download/%s/Xray-linux-64.zip.dgst", version)
+	}
+	content, err := getRemoteFileContent(urlStr)
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "SHA256(") {
+			parts := strings.Split(line, "= ")
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1]), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("hash not found in dgst")
+}
+
+func downloadWithVerification(urlStr, dest, expectedHash string) error {
+	resp, err := http.Get(urlStr)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("download failed: %d", resp.StatusCode)
+	}
+
+	tmpPath := dest + ".tmp"
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(f, resp.Body)
+	f.Close()
+	if err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+
+	if err := verifySHA256(tmpPath, expectedHash); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+
+	return os.Rename(tmpPath, dest)
 }
