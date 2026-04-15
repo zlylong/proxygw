@@ -62,7 +62,7 @@
                 </div>
                 <div class="flex justify-end space-x-2 mt-6">
                     <button @click="showNodeModal = false" class="px-4 py-2 border rounded hover:bg-gray-50 text-sm">取消</button>
-                    <button @click="saveNode" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm">保存</button>
+                    <button @click="saveNode" :disabled="isLoading.save" :class="isLoading.save ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'" class="px-4 py-2 text-white rounded hover:bg-blue-700 text-sm">保存</button>
                 </div>
             </div>
         </div>
@@ -452,6 +452,8 @@
             setup() {
                                 const showNodeModal = ref(false);
                 const editingNode = ref({ id: null, name: '', type: 'Vmess', address: '', port: 443, uuid: '', params: '{}' });
+                const isSubmitting = ref({ apply: false, update: false, node: false, login: false });
+                const isLoading = ref({ apply: false, save: false });
 
                 const openAddNode = () => {
                     editingNode.value = { id: null, name: 'New Node', type: 'Vmess', address: '1.2.3.4', port: 443, uuid: '', params: '{}' };
@@ -468,6 +470,8 @@
                 };
 
                 const saveNode = async () => {
+                    if (isLoading.value.save) return;
+                    isLoading.value.save = true;
                     try {
                         const payload = {
                             Name: editingNode.value.name,
@@ -490,6 +494,8 @@
                         if (res.ok) {
                             showToast("节点保存成功！");
                             showNodeModal.value = false;
+                    } finally {
+                        isLoading.value.save = false;
                             loadData();
                         } else {
                             showToast("保存失败，请检查填写内容", "error");
@@ -552,7 +558,14 @@ const showRollbackModal = ref(false);
                 
                 const showPwdModal = ref(false);
                 const pwdForm = ref({ old: '', new: '' });
-                const logout = () => {
+                const logout = async () => {
+                    try {
+                        await fetch("/api/logout", { method: "POST", headers: { "Authorization": "Bearer " + token.value } });
+                    } catch (e) {}
+                    localStorage.removeItem("token");
+                    token.value = "";
+                    showToast("已安全退出");
+                };
                     token.value = '';
                     localStorage.removeItem('token');
                 };
@@ -591,6 +604,8 @@ const showRollbackModal = ref(false);
                 const token = ref(localStorage.getItem('token') || '');
                 const password = ref('');
                 const login = async () => {
+                    if (isSubmitting.value.login) return;
+                    isSubmitting.value.login = true;
                     try {
                         const res = await fetch('/api/login', { 
                             method: 'POST', 
@@ -611,6 +626,7 @@ const showRollbackModal = ref(false);
                 };
                 
                 const apiFetch = async (url, options = {}) => {
+                    try {
                     if(!options.headers) options.headers = {};
                     options.headers['Authorization'] = 'Bearer ' + token.value;
                     const res = await fetch(url, options);
@@ -685,6 +701,8 @@ const showRollbackModal = ref(false);
 };
 
                 const applyConfig = async () => {
+                    if (isLoading.value.apply) return;
+                    isLoading.value.apply = true;
                     isUpdating.value['apply'] = true;
                     showToast("配置已下发，服务将平滑重启...");
                     await apiFetch('/api/apply', {method: 'POST'});
@@ -750,7 +768,8 @@ Mode B: 旁路由发布 (OSPF)`)) {
 
                 onMounted(() => { loadData(true); setInterval(() => loadData(false), 5000); });
 
-                return { cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback };
+                return {
+                    isSubmitting, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback };
             }
         }).mount('#app');
     </script>
