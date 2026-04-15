@@ -149,8 +149,8 @@ func initDB() {
 	db.Exec("ALTER TABLE routes_table ADD COLUMN miss_count INTEGER DEFAULT 0")
 
 	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('mode', 'B')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_local', '114.114.114.114')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_remote', '8.8.8.8')")
+	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_local', '119.29.29.29,223.5.5.5')")
+	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_remote', '1.1.1.1,8.8.8.8')")
 	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_lazy', 'true')")
 	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_mode', 'smart')")
 	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_enabled', 'true')")
@@ -377,9 +377,9 @@ func formatUpstreams(addrs string, useSocks bool) string {
 	}
 	if len(items) == 0 {
 		if useSocks {
-			return `[{ addr: "8.8.8.8", socks5: "127.0.0.1:10808" }]`
+			return `[{ addr: "1.1.1.1", socks5: "127.0.0.1:10808" }, { addr: "8.8.8.8", socks5: "127.0.0.1:10808" }]`
 		}
-		return `[{ addr: "223.5.5.5" }]`
+		return `[{ addr: "119.29.29.29" }, { addr: "223.5.5.5" }]`
 	}
 	return "[" + strings.Join(items, ", ") + "]"
 }

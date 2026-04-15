@@ -14,6 +14,11 @@ echo "[1/6] Installing system dependencies..."
 apt-get update
 apt-get install -y build-essential nftables frr sqlite3 curl golang nodejs npm wget unzip
 
+echo "[1.5/6] Disabling systemd-resolved DNS stub listener..."
+mkdir -p /etc/systemd
+sed -i 's/^#*DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf || echo "DNSStubListener=no" >> /etc/systemd/resolved.conf
+systemctl restart systemd-resolved || true
+
 echo "[2/6] Setting up routing rules..."
 if ! grep -q "100 tproxy" /etc/iproute2/rt_tables; then
     echo "100 tproxy" >> /etc/iproute2/rt_tables
