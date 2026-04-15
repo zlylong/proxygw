@@ -1,5 +1,19 @@
 # ProxyGW Changelog
 
+## 2026-04-15 (Security Hardening & Sandbox)
+
+### Added
+- **Supply Chain Validation**: Added rigorous SHA256/SHA512 hash verification for Xray-core downloads via `.dgst` files.
+- **GeoData Validation**: Added `rules.zip.sha256sum` signature verification for geosite and geoip downloads, preventing malicious file replacement.
+- **Systemd Sandboxing**: Introduced `ProtectSystem=strict`, `NoNewPrivileges=yes`, `PrivateTmp=yes`, and `ReadWritePaths` whitelisting to the `proxygw.service` to confine the backend root process.
+- **Initial Password Generation**: Removed hardcoded `admin` password. First-time installs now generate a secure random password saved to `config/bootstrap_password.txt`.
+
+### Changed
+- `scripts/install.sh` has been upgraded to auto-deploy the hardened Systemd service.
+- `README.md` updated to reflect the new sandboxing model and security posture.
+
+# ProxyGW Changelog
+
 ## 2026-04-14 (Round 3 Deep Governance)
 
 ### Added

@@ -2,7 +2,7 @@
 
 ProxyGW 是一个 Debian 原生部署的透明代理网关，整合 Xray、Mosdns、nftables(TProxy)、FRR(OSPF)，并提供 Web 管理界面。
 
-## 当前架构（第二轮治理后）
+## 当前架构（第三轮安全强化后）
 
 - 后端：Go + Gin（模块化路由）
 - 前端：Vue 构建产物（`frontend/dist`）
@@ -14,57 +14,56 @@ ProxyGW 是一个 Debian 原生部署的透明代理网关，整合 Xray、Mosdn
 后端目录（关键）：
 
 - `backend/main.go`：核心运行逻辑、配置生成、守护任务
-- `backend/api_routes.go`：API 总装配与鉴权
-- `backend/auth_routes.go`
-- `backend/system_routes.go`
-- `backend/config_routes.go`
-- `backend/nodes_routes.go`
-- `backend/rules_routes.go`
-- `backend/dns_routes.go`
-- `backend/update_routes.go`
+- `backend/update_routes.go`：Xray 和 GeoData 的下载与安全校验（支持 SHA256/512 签名防篡改）
 - `backend/helpers.go`：可测试的纯函数
-- `backend/mosdns_service.go`：Mosdns 配置渲染 service
-- `backend/xray_service.go`：Xray 基础配置构建 service
-- `backend/helpers_test.go`：最小回归测试（13 项）
-- `backend/api_integration_test.go`：API 集成测试（httptest + 临时sqlite）
 
-## 快速启动
+## 快速启动与安装
+
+推荐使用提供的一键安装脚本，它将自动配置依赖、编译后端并施加 Systemd 安全沙箱：
 
 ```bash
-cd /root/proxygw/backend
-go test ./... -v
-go build -o proxygw-backend .
-systemctl restart proxygw
-systemctl status proxygw --no-pager
+cd /root/proxygw
+bash scripts/install.sh
 ```
 
-## 访问
+手动开发启动：
+```bash
+cd /root/proxygw/backend
+go build -o proxygw-backend .
+systemctl restart proxygw
+```
 
-- Web: `http://<server-ip>/`
-- 默认密码：`admin`
+## 访问与初始密码
 
-## 关键特性
+- Web 管理地址: `http://<server-ip>/`
+- **安全提示**：系统已**移除**硬编码的默认密码（原 `admin` 弃用）。
+- 首次全新安装时，后端会自动生成随机高强度初始密码，并保存在 `/root/proxygw/config/bootstrap_password.txt`。请使用此密码登录并**立即修改**。
+
+## 核心安全特性
+
+1) 供应链防投毒 (Hash Validation)
+- Xray 二进制包：下载时强制拉取 `.dgst` 文件，在内存中完成 SHA256/512 比对。若哈希不符，直接阻断安装。
+- GeoData (规则库)：更新时同步拉取 `.sha256sum` 并执行强校验。
+- 全程使用官方直连，规避不安全的公共镜像站点劫持风险。
+
+2) Systemd 原生沙箱强化 (Systemd Hardening)
+- `ProtectSystem=strict`：系统底层完全只读，防止越权篡改核心文件。
+- `ReadWritePaths`：基于最小权限原则，仅放开网关配置及通信必要路径（`- /root/proxygw`, `- /usr/local/bin`, `- /etc/frr`）。
+- `NoNewPrivileges=yes`：彻底阻断 SUID 提权。
+- 独立的 `PrivateTmp`，屏蔽内核参数及 Cgroups 修改权限。
+
+## 其他特性
 
 1) 运行模式切换
-- Mode A: start nftables + stop frr
-- Mode B: stop nftables + start frr
+- Mode A: 纯 TProxy + nftables（停用 FRR）
+- Mode B: 基于 OSPF 的动态路由注入（启用 FRR）
 
 2) DNS 与分流
 - 路由分流中 `policy=proxy` 的 domain 规则会同步到 `core/mosdns/proxy_domains.txt`
 - 远端 DNS 上游支持 socks5 出站（127.0.0.1:10808）
 
-3) 组件更新
-- Xray 版本列表：`GET /api/xray/versions`
-- Xray 指定版本升级：`POST /api/update/xray` + `{ "version": "v26.3.27" }`
-- Xray 回滚：`POST /api/update/rollback_xray`
-- GeoData 更新链路使用 GitHub 官方直连（不使用 ghproxy）
-
 ## 文档索引
 
-- `docs/README.md`
 - `docs/API.md`
 - `docs/OPERATIONS.md`
 - `docs/CHANGELOG.md`
-- `docs/RELEASE_TEMPLATE.md`
-- `docs/AUDIT-2026-04-14.md`
-- `docs/AUDIT-2026-04-14-round2.md`
