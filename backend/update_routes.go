@@ -47,7 +47,7 @@ func updateGeodata() error {
 
 func registerUpdateRoutes(api *gin.RouterGroup) {
 	api.GET("/xray/versions", func(c *gin.Context) {
-		resp, err := http.Get("https://api.github.com/repos/XTLS/Xray-core/releases")
+		resp, err := httpClient.Get("https://api.github.com/repos/XTLS/Xray-core/releases")
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch releases"})
 			return

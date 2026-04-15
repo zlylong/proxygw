@@ -2,12 +2,19 @@ package main
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
 func authMiddleware(c *gin.Context) {
-	if c.GetHeader("Authorization") != "Bearer "+sessionToken {
+	authHeader := c.GetHeader("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		c.AbortWithStatusJSON(401, gin.H{"error": "Unauthorized"})
+		return
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if !validateSession(token) {
 		c.AbortWithStatusJSON(401, gin.H{"error": "Unauthorized"})
 		return
 	}

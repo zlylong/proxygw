@@ -21,7 +21,6 @@ import (
 )
 
 var db *sql.DB
-var sessionToken string
 
 var (
 	cachedGeosite []string
@@ -634,13 +633,6 @@ route-map OSPF-EXPORT permit 10
 }
 
 func main() {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err == nil {
-		sessionToken = fmt.Sprintf("%x", b)
-	} else {
-		sessionToken = fmt.Sprintf("proxygw-%d", time.Now().UnixNano())
-	}
-
 	syncFRRConfig()
 	initDB()
 	go ospfController()

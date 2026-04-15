@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -108,7 +109,7 @@ func TestParsePortValue(t *testing.T) {
 
 func TestAuthMiddlewareUnauthorized(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	sessionToken = "abc"
+	sessions.Store("abc", SessionInfo{ExpiresAt: time.Now().Add(time.Hour)})
 	r := gin.New()
 	r.Use(authMiddleware)
 	r.GET("/ok", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
@@ -123,7 +124,7 @@ func TestAuthMiddlewareUnauthorized(t *testing.T) {
 
 func TestAuthMiddlewareAuthorized(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	sessionToken = "abc"
+	sessions.Store("abc", SessionInfo{ExpiresAt: time.Now().Add(time.Hour)})
 	r := gin.New()
 	r.Use(authMiddleware)
 	r.GET("/ok", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })

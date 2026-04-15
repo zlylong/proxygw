@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func buildXrayDownloadURL(version string) (string, error) {
@@ -106,7 +107,7 @@ func isTrustedOrigin(origin, host string) bool {
 }
 
 func getRemoteFileContent(urlStr string) (string, error) {
-	resp, err := http.Get(urlStr)
+	resp, err := httpClient.Get(urlStr)
 	if err != nil {
 		return "", err
 	}
@@ -185,7 +186,7 @@ func getXrayHash(version string) (string, error) {
 }
 
 func downloadWithVerification(urlStr, dest, expectedHash string) error {
-	resp, err := http.Get(urlStr)
+	resp, err := downloadClient.Get(urlStr)
 	if err != nil {
 		return err
 	}
@@ -212,4 +213,9 @@ func downloadWithVerification(urlStr, dest, expectedHash string) error {
 	}
 
 	return os.Rename(tmpPath, dest)
+}
+
+var downloadClient = &http.Client{ Timeout: 5 * time.Minute }
+var httpClient = &http.Client{
+	Timeout: 15 * time.Second,
 }

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/mattn/go-sqlite3"
@@ -50,7 +51,7 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 	t.Cleanup(func() {
 		db.Close()
 	})
-	sessionToken = "test-token"
+	sessions.Store("test-token", SessionInfo{ExpiresAt: time.Now().Add(time.Hour)})
 	r := gin.New()
 	registerAPIRoutes(r)
 	return r
@@ -70,7 +71,7 @@ func TestLoginSuccess(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp["token"] != "test-token" {
+	if resp["token"] == "" {
 		t.Fatalf("unexpected token: %s", resp["token"])
 	}
 }
