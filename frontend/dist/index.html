@@ -930,7 +930,7 @@ Mode B: 旁路由发布 (OSPF)`)) {
                 onMounted(() => { loadData(true); setInterval(() => loadData(false), 5000); });
 
                 return {
-                    importFromLink,
+                    importFromLink, loadData,
                     
                     vlessParams, isSubmitting, isLoading, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback };
             }
