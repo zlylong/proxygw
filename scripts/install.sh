@@ -3,7 +3,7 @@
 # Supports both fresh installs and updates.
 # Usage: ./install.sh
 
-set -e
+set -euo pipefail
 
 REPO_DIR="/root/proxygw"
 export GO111MODULE=on
@@ -32,18 +32,6 @@ fi
 # Add rule if not exists
 ip rule show | grep -q "fwmark 0x1 lookup tproxy" || ip rule add fwmark 1 table tproxy
 ip route show table tproxy | grep -q "local default dev lo" || ip route add local default dev lo table tproxy
-
-# Free port 53 from systemd-resolved
-if grep -q "#DNSStubListener=yes" /etc/systemd/resolved.conf || grep -q "DNSStubListener=yes" /etc/systemd/resolved.conf || ! grep -q "DNSStubListener=no" /etc/systemd/resolved.conf; then
-    echo "Configuring systemd-resolved to free port 53..."
-    sed -i 's/#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
-    sed -i 's/DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
-    # Ensure it is set if not found
-    if ! grep -q "DNSStubListener=no" /etc/systemd/resolved.conf; then
-        echo "DNSStubListener=no" >> /etc/systemd/resolved.conf
-    fi
-    systemctl restart systemd-resolved || true
-fi
 
 # Apply system kernel tunings for Transparent Proxying
 echo "Applying sysctl kernel tunings for BBR and Conntrack..."

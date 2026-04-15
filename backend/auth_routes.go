@@ -22,7 +22,13 @@ var loginAttempts sync.Map
 
 func createSession() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// fallback: use timestamp-derived bytes to avoid empty token on entropy read failure
+		now := time.Now().UnixNano()
+		for i := 0; i < len(b); i++ {
+			b[i] = byte(now >> (i % 8 * 8))
+		}
+	}
 	token := hex.EncodeToString(b)
 	sessions.Store(token, SessionInfo{
 		ExpiresAt: time.Now().Add(24 * time.Hour), // 24-hour expiration
@@ -112,8 +118,6 @@ func verifyAndMaybeMigratePassword(input string) (bool, error) {
 }
 
 func registerAuthRoutes(public *gin.RouterGroup, authed *gin.RouterGroup) {
-var loginAttempts sync.Map 
-
 	public.POST("/login", func(c *gin.Context) {
 		ip := c.ClientIP()
 		val, _ := loginAttempts.LoadOrStore(ip, 0)

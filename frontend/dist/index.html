@@ -788,7 +788,8 @@ const showRollbackModal = ref(false);
                     clearTimeout(wsReconnectTimer);
 
                     if (tab === 'dns') {
-                        ws = new WebSocket(`ws://${window.location.host}/api/dns/logs/ws`);
+                        const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+                        ws = new WebSocket(`${wsProto}://${window.location.host}/api/dns/logs/ws`);
                         ws.onmessage = (e) => {
                             dnsLogs.value.push(e.data);
                             if (dnsLogs.value.length > 100) dnsLogs.value.shift();

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -17,24 +18,33 @@ func updateGeodata() error {
 		return fmt.Errorf("failed to fetch geodata hash: %v", err)
 	}
 
+	tmpDir, err := os.MkdirTemp("", "proxygw-geodata-*")
+	if err != nil {
+		return fmt.Errorf("create temp dir failed: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	rulesZip := filepath.Join(tmpDir, "rules.zip")
 	downloadURL := "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/" + tag + "/rules.zip"
-	err = downloadWithVerification(downloadURL, "/tmp/rules.zip", hashZip)
+	err = downloadWithVerification(downloadURL, rulesZip, hashZip)
 	if err != nil {
 		return fmt.Errorf("geodata validation failed: %v", err)
 	}
 
 	cmds := [][]string{
-		{"unzip", "-qo", "/tmp/rules.zip", "direct-list.txt", "geoip.dat", "geosite.dat", "-d", "/tmp/"},
-		{"cp", "/tmp/direct-list.txt", "/root/proxygw/core/mosdns/geosite_cn.txt"},
-		{"cp", "/tmp/geoip.dat", "/root/proxygw/core/mosdns/geoip.dat"},
-		{"cp", "/tmp/geosite.dat", "/root/proxygw/core/mosdns/geosite.dat"},
+		{"unzip", "-qo", rulesZip, "direct-list.txt", "geoip.dat", "geosite.dat", "-d", tmpDir},
+		{"cp", filepath.Join(tmpDir, "direct-list.txt"), "/root/proxygw/core/mosdns/geosite_cn.txt"},
+		{"cp", filepath.Join(tmpDir, "geoip.dat"), "/root/proxygw/core/mosdns/geoip.dat"},
+		{"cp", filepath.Join(tmpDir, "geosite.dat"), "/root/proxygw/core/mosdns/geosite.dat"},
 	}
 	for _, c := range cmds {
 		if err := exec.Command(c[0], c[1:]...).Run(); err != nil {
 			return fmt.Errorf("extraction/copy failed: %v", err)
 		}
 	}
-	os.WriteFile("/root/proxygw/core/mosdns/geodata.ver", []byte(tag), 0644)
+	if err := os.WriteFile("/root/proxygw/core/mosdns/geodata.ver", []byte(tag), 0644); err != nil {
+		return fmt.Errorf("write geodata version failed: %v", err)
+	}
 	if err := exec.Command("systemctl", "restart", "mosdns", "xray").Run(); err != nil {
 		return fmt.Errorf("service restart failed: %v", err)
 	}
@@ -83,7 +93,10 @@ func registerUpdateRoutes(api *gin.RouterGroup) {
 			var req struct {
 				Version string `json:"version"`
 			}
-			_ = c.ShouldBindJSON(&req)
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid request payload"})
+				return
+			}
 			downloadURL, err := buildXrayDownloadURL(req.Version)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid version"})
@@ -100,15 +113,23 @@ func registerUpdateRoutes(api *gin.RouterGroup) {
 				return
 			}
 
-			if err := downloadWithVerification(downloadURL, "/tmp/xray.zip", hash); err != nil {
+			tmpDir, err := os.MkdirTemp("", "proxygw-xray-*")
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "create temp dir failed"})
+				return
+			}
+			defer os.RemoveAll(tmpDir)
+			xrayZip := filepath.Join(tmpDir, "xray.zip")
+
+			if err := downloadWithVerification(downloadURL, xrayZip, hash); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fmt.Sprintf("xray validation failed: %v", err)})
 				return
 			}
-			if err := exec.Command("unzip", "-qo", "/tmp/xray.zip", "-d", "/tmp/xray").Run(); err != nil {
+			if err := exec.Command("unzip", "-qo", xrayZip, "-d", tmpDir).Run(); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "unzip failed"})
 				return
 			}
-			if err := exec.Command("install", "-m", "755", "/tmp/xray/xray", "/usr/local/bin/xray").Run(); err != nil {
+			if err := exec.Command("install", "-m", "755", filepath.Join(tmpDir, "xray"), "/usr/local/bin/xray").Run(); err != nil {
 				_ = exec.Command("cp", "/usr/local/bin/xray.bak", "/usr/local/bin/xray").Run()
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "install failed"})
 				return

@@ -137,7 +137,7 @@ func verifySHA256(filePath, expectedHash string) error {
 }
 
 func getGeoDataVersionAndHash() (string, string, error) {
-	resp, err := http.Get("https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest")
+	resp, err := httpClient.Get("https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest")
 	if err != nil {
 		return "", "", err
 	}
@@ -215,7 +215,7 @@ func downloadWithVerification(urlStr, dest, expectedHash string) error {
 	return os.Rename(tmpPath, dest)
 }
 
-var downloadClient = &http.Client{ Timeout: 5 * time.Minute }
+var downloadClient = &http.Client{Timeout: 5 * time.Minute}
 var httpClient = &http.Client{
 	Timeout: 15 * time.Second,
 }

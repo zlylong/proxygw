@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -11,16 +13,72 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func readCPUUsage() float64 {
+	f, err := os.Open("/proc/loadavg")
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return 0
+	}
+	fields := strings.Fields(string(b))
+	if len(fields) == 0 {
+		return 0
+	}
+	load, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return 0
+	}
+	if load < 0 {
+		return 0
+	}
+	return load * 100
+}
+
+func readMemoryUsage() float64 {
+	f, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	memTotal := 0.0
+	memAvailable := 0.0
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "MemTotal:") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				memTotal, _ = strconv.ParseFloat(parts[1], 64)
+			}
+		}
+		if strings.HasPrefix(line, "MemAvailable:") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				memAvailable, _ = strconv.ParseFloat(parts[1], 64)
+			}
+		}
+	}
+	if memTotal <= 0 {
+		return 0
+	}
+	used := memTotal - memAvailable
+	if used < 0 {
+		used = 0
+	}
+	return used / memTotal * 100
+}
+
 func registerSystemRoutes(api *gin.RouterGroup) {
 	api.GET("/status", func(c *gin.Context) {
 		xray := exec.Command("systemctl", "is-active", "--quiet", "xray").Run() == nil
 		frr := exec.Command("systemctl", "is-active", "--quiet", "frr").Run() == nil
 		mosdns := exec.Command("systemctl", "is-active", "--quiet", "mosdns").Run() == nil
 
-		cpuOut, _ := exec.Command("sh", "-c", "top -bn1 | grep 'Cpu(s)' | awk '{print $2}'").Output()
-		cpu, _ := strconv.ParseFloat(strings.TrimSpace(string(cpuOut)), 64)
-		ramOut, _ := exec.Command("sh", "-c", "free | grep Mem | awk '{print $3/$2 * 100.0}'").Output()
-		ram, _ := strconv.ParseFloat(strings.TrimSpace(string(ramOut)), 64)
+		cpu := readCPUUsage()
+		ram := readMemoryUsage()
 
 		var mode string
 		db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
