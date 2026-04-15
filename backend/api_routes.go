@@ -16,10 +16,10 @@ func authMiddleware(c *gin.Context) {
 
 func registerAPIRoutes(r *gin.Engine) {
 	api := r.Group("/api")
-	registerAuthRoutes(api)
 
 	authed := api.Group("")
 	authed.Use(authMiddleware)
+	registerAuthRoutes(api, authed)
 
 	registerConfigRoutes(authed)
 	registerSystemRoutes(authed)

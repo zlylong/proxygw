@@ -30,18 +30,44 @@ func registerDNSRoutes(api *gin.RouterGroup) {
 			Local, Remote, Mode string
 			Lazy                bool
 		}
-		if c.BindJSON(&req) == nil {
-			mode := strings.TrimSpace(req.Mode)
-			if mode == "" {
-				mode = "smart"
-			}
-			db.Exec("UPDATE settings SET value=? WHERE key='dns_local'", req.Local)
-			db.Exec("UPDATE settings SET value=? WHERE key='dns_remote'", req.Remote)
-			db.Exec("UPDATE settings SET value=? WHERE key='dns_lazy'", fmt.Sprintf("%t", req.Lazy))
-			db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('dns_mode', ?)", mode)
-			applyMosdnsConfig()
-			c.JSON(http.StatusOK, gin.H{"success": true})
+		if c.BindJSON(&req) != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
+			return
 		}
+
+		local, ok := normalizeUpstreamCSV(req.Local)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid local upstream"})
+			return
+		}
+		remote, ok := normalizeUpstreamCSV(req.Remote)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid remote upstream"})
+			return
+		}
+
+		mode := strings.TrimSpace(req.Mode)
+		if mode == "" {
+			mode = "smart"
+		}
+		if _, err := db.Exec("UPDATE settings SET value=? WHERE key='dns_local'", local); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		if _, err := db.Exec("UPDATE settings SET value=? WHERE key='dns_remote'", remote); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		if _, err := db.Exec("UPDATE settings SET value=? WHERE key='dns_lazy'", fmt.Sprintf("%t", req.Lazy)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('dns_mode', ?)", mode); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		applyMosdnsConfig()
+		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
 	api.GET("/dns/logs/ws", func(c *gin.Context) {
@@ -51,8 +77,15 @@ func registerDNSRoutes(api *gin.RouterGroup) {
 		}
 		defer ws.Close()
 		cmd := exec.Command("tail", "-f", "-n", "20", "/root/proxygw/core/mosdns/mosdns.log")
-		stdout, _ := cmd.StdoutPipe()
-		cmd.Start()
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			_ = ws.WriteMessage(websocket.TextMessage, []byte("failed to read logs"))
+			return
+		}
+		if err := cmd.Start(); err != nil {
+			_ = ws.WriteMessage(websocket.TextMessage, []byte("failed to start log stream"))
+			return
+		}
 		defer cmd.Process.Kill()
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
@@ -63,7 +96,11 @@ func registerDNSRoutes(api *gin.RouterGroup) {
 	})
 
 	api.GET("/dns/logs", func(c *gin.Context) {
-		out, _ := exec.Command("tail", "-n", "10", "/root/proxygw/core/mosdns/mosdns.log").Output()
+		out, err := exec.Command("tail", "-n", "10", "/root/proxygw/core/mosdns/mosdns.log").Output()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "read logs failed"})
+			return
+		}
 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 		c.JSON(http.StatusOK, lines)
 	})

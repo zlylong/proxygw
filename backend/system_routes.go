@@ -64,7 +64,15 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bad mode payload"})
 			return
 		}
-		db.Exec("UPDATE settings SET value=? WHERE key='mode'", req.Mode)
+		req.Mode = strings.TrimSpace(req.Mode)
+		if req.Mode != "A" && req.Mode != "B" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "mode must be A or B"})
+			return
+		}
+		if _, err := db.Exec("UPDATE settings SET value=? WHERE key='mode'", req.Mode); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
 		if req.Mode == "A" {
 			exec.Command("systemctl", "start", "nftables").Run()
 			exec.Command("systemctl", "stop", "frr").Run()
@@ -117,6 +125,6 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			neighborsCount = 1
 		}
 
-		c.JSON(http.StatusOK, gin.H{"neighbors": neighborsCount, "published": pub, "pending": cand, "logs": ospfLogs})
+		c.JSON(http.StatusOK, gin.H{"neighbors": neighborsCount, "published": pub, "pending": cand, "logs": getOspfLogsSnapshot()})
 	})
 }

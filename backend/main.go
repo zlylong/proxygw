@@ -29,12 +29,23 @@ var (
 	cacheMutex    sync.Mutex
 )
 var ospfLogs []string
+var ospfLogsMu sync.RWMutex
 
 func addOspfLog(msg string) {
+	ospfLogsMu.Lock()
+	defer ospfLogsMu.Unlock()
 	ospfLogs = append([]string{time.Now().Format("15:04:05") + " " + msg}, ospfLogs...)
 	if len(ospfLogs) > 50 {
 		ospfLogs = ospfLogs[:50]
 	}
+}
+
+func getOspfLogsSnapshot() []string {
+	ospfLogsMu.RLock()
+	defer ospfLogsMu.RUnlock()
+	out := make([]string, len(ospfLogs))
+	copy(out, ospfLogs)
+	return out
 }
 
 func parseDatFile(filename string) []string {
@@ -143,7 +154,6 @@ func initDB() {
 	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_mode', 'smart')")
 	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_enabled', 'true')")
 	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_time', '04:00')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('password', 'admin')")
 
 	var count int
 	db.QueryRow("SELECT count(*) FROM rules").Scan(&count)
@@ -151,6 +161,52 @@ func initDB() {
 		db.Exec("INSERT INTO rules (type, value, policy) VALUES ('geosite', 'cn', 'direct')")
 		db.Exec("INSERT INTO rules (type, value, policy) VALUES ('geosite', 'category-ads-all', 'block')")
 		db.Exec("INSERT INTO rules (type, value, policy) VALUES ('geolocation', '!cn', 'proxy')")
+	}
+
+	ensurePasswordInitialized()
+}
+
+func ensurePasswordInitialized() {
+	var pwdHash, legacyPwd string
+	_ = db.QueryRow("SELECT value FROM settings WHERE key='password_hash'").Scan(&pwdHash)
+	_ = db.QueryRow("SELECT value FROM settings WHERE key='password'").Scan(&legacyPwd)
+	if strings.TrimSpace(pwdHash) != "" || strings.TrimSpace(legacyPwd) != "" {
+		return
+	}
+
+	bootstrap := strings.TrimSpace(os.Getenv("PROXYGW_BOOTSTRAP_PASSWORD"))
+	generated := false
+	if bootstrap == "" {
+		b := make([]byte, 12)
+		if _, err := rand.Read(b); err == nil {
+			bootstrap = fmt.Sprintf("%x", b)
+			generated = true
+		}
+	}
+	if strings.TrimSpace(bootstrap) == "" {
+		log.Println("[SECURITY] password bootstrap failed: empty bootstrap password")
+		return
+	}
+
+	hash, err := hashPassword(bootstrap)
+	if err != nil {
+		log.Printf("[SECURITY] password bootstrap hash failed: %v", err)
+		return
+	}
+	if _, err = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('password_hash', ?)", hash); err != nil {
+		log.Printf("[SECURITY] password bootstrap db write failed: %v", err)
+		return
+	}
+
+	if generated {
+		bootstrapPath := "../config/bootstrap_password.txt"
+		if err := os.WriteFile(bootstrapPath, []byte(bootstrap+"\n"), 0600); err != nil {
+			log.Printf("[SECURITY] initialized random bootstrap password (save failed: %v)", err)
+		} else {
+			log.Printf("[SECURITY] initialized random bootstrap password, saved to %s (change it immediately)", bootstrapPath)
+		}
+	} else {
+		log.Println("[SECURITY] initialized password from PROXYGW_BOOTSTRAP_PASSWORD")
 	}
 }
 
@@ -289,7 +345,7 @@ func cronUpdater() {
 var (
 	applyTimer *time.Timer
 	applyMutex sync.Mutex
-	upgrader   = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	upgrader   = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return isTrustedOrigin(r.Header.Get("Origin"), r.Host) }}
 )
 
 func scheduleApply() {
@@ -308,14 +364,14 @@ func formatUpstreams(addrs string, useSocks bool) string {
 	parts := strings.Split(addrs, ",")
 	var items []string
 	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
+		clean, ok := sanitizeUpstreamItem(p)
+		if !ok {
 			continue
 		}
 		if useSocks {
-			items = append(items, fmt.Sprintf(`{ addr: "%s", socks5: "127.0.0.1:10808" }`, p))
+			items = append(items, fmt.Sprintf(`{ addr: "%s", socks5: "127.0.0.1:10808" }`, clean))
 		} else {
-			items = append(items, fmt.Sprintf(`{ addr: "%s" }`, p))
+			items = append(items, fmt.Sprintf(`{ addr: "%s" }`, clean))
 		}
 	}
 	if len(items) == 0 {

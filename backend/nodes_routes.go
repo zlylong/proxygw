@@ -37,11 +37,16 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 			Name, Group, Type, Address, UUID string
 			Port                             int
 		}
-		if c.BindJSON(&n) == nil {
-			db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, ?, ?, ?, ?, ?, '{}', 1)", n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID)
-			scheduleApply()
-			c.JSON(http.StatusOK, gin.H{"success": true})
+		if c.BindJSON(&n) != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
+			return
 		}
+		if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, ?, ?, ?, ?, ?, '{}', 1)", n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		scheduleApply()
+		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
 	api.POST("/nodes/import", func(c *gin.Context) {
@@ -122,29 +127,38 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 			Name, Group, Type, Address, UUID, Params string
 			Port                                     int
 		}
-		if c.BindJSON(&n) == nil {
-			if n.Port <= 0 {
-				n.Port = 443
-			}
-			if n.Params == "" {
-				n.Params = "{}"
-			}
-			db.Exec("UPDATE nodes SET name=?, grp=?, type=?, address=?, port=?, uuid=?, params=? WHERE id=?", n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID, n.Params, c.Param("id"))
-			scheduleApply()
-			c.JSON(http.StatusOK, gin.H{"success": true})
+		if c.BindJSON(&n) != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
 			return
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
+		if n.Port <= 0 {
+			n.Port = 443
+		}
+		if n.Params == "" {
+			n.Params = "{}"
+		}
+		if _, err := db.Exec("UPDATE nodes SET name=?, grp=?, type=?, address=?, port=?, uuid=?, params=? WHERE id=?", n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID, n.Params, c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		scheduleApply()
+		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
 	api.DELETE("/nodes/:id", func(c *gin.Context) {
-		db.Exec("DELETE FROM nodes WHERE id=?", c.Param("id"))
+		if _, err := db.Exec("DELETE FROM nodes WHERE id=?", c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
 		scheduleApply()
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
 	api.PUT("/nodes/:id/toggle", func(c *gin.Context) {
-		db.Exec("UPDATE nodes SET active = NOT active WHERE id=?", c.Param("id"))
+		if _, err := db.Exec("UPDATE nodes SET active = NOT active WHERE id=?", c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
 		scheduleApply()
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})

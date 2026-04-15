@@ -76,17 +76,38 @@ func registerUpdateRoutes(api *gin.RouterGroup) {
 				return
 			}
 
-			exec.Command("cp", "/usr/local/bin/xray", "/usr/local/bin/xray.bak").Run()
+			if err := exec.Command("cp", "/usr/local/bin/xray", "/usr/local/bin/xray.bak").Run(); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "backup failed"})
+				return
+			}
 			if err := exec.Command("wget", "-qO", "/tmp/xray.zip", downloadURL).Run(); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "download failed"})
 				return
 			}
-			exec.Command("unzip", "-qo", "/tmp/xray.zip", "-d", "/tmp/xray").Run()
-			exec.Command("install", "-m", "755", "/tmp/xray/xray", "/usr/local/bin/xray").Run()
-			exec.Command("systemctl", "restart", "xray").Run()
+			if err := exec.Command("unzip", "-qo", "/tmp/xray.zip", "-d", "/tmp/xray").Run(); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "unzip failed"})
+				return
+			}
+			if err := exec.Command("install", "-m", "755", "/tmp/xray/xray", "/usr/local/bin/xray").Run(); err != nil {
+				_ = exec.Command("cp", "/usr/local/bin/xray.bak", "/usr/local/bin/xray").Run()
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "install failed"})
+				return
+			}
+			if err := exec.Command("systemctl", "restart", "xray").Run(); err != nil {
+				_ = exec.Command("cp", "/usr/local/bin/xray.bak", "/usr/local/bin/xray").Run()
+				_ = exec.Command("systemctl", "restart", "xray").Run()
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "restart failed, rolled back"})
+				return
+			}
 		case "rollback_xray":
-			exec.Command("cp", "/usr/local/bin/xray.bak", "/usr/local/bin/xray").Run()
-			exec.Command("systemctl", "restart", "xray").Run()
+			if err := exec.Command("cp", "/usr/local/bin/xray.bak", "/usr/local/bin/xray").Run(); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "rollback copy failed"})
+				return
+			}
+			if err := exec.Command("systemctl", "restart", "xray").Run(); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "rollback restart failed"})
+				return
+			}
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "unsupported component"})
 			return

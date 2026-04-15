@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -39,15 +40,46 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 
 	api.POST("/rules", func(c *gin.Context) {
 		var r struct{ Type, Value, Policy string }
-		if c.BindJSON(&r) == nil {
-			db.Exec("INSERT INTO rules (type, value, policy) VALUES (?, ?, ?)", r.Type, r.Value, r.Policy)
-			scheduleApply()
-			c.JSON(http.StatusOK, gin.H{"success": true})
+		if c.BindJSON(&r) != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
+			return
 		}
+
+		r.Type = strings.ToLower(strings.TrimSpace(r.Type))
+		r.Value = strings.TrimSpace(r.Value)
+		r.Policy = strings.ToLower(strings.TrimSpace(r.Policy))
+		if r.Type == "" || r.Value == "" || r.Policy == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "type/value/policy required"})
+			return
+		}
+
+		allowedType := map[string]bool{"domain": true, "geosite": true, "geoip": true, "geolocation": true, "ip": true}
+		if !allowedType[r.Type] {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid rule type"})
+			return
+		}
+		if r.Type == "ip" && !isValidIPOrCIDR(r.Value) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ip/cidr rule value"})
+			return
+		}
+		if r.Policy != "direct" && r.Policy != "block" && !strings.HasPrefix(r.Policy, "proxy") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid policy"})
+			return
+		}
+
+		if _, err := db.Exec("INSERT INTO rules (type, value, policy) VALUES (?, ?, ?)", r.Type, r.Value, r.Policy); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		scheduleApply()
+		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
 	api.DELETE("/rules/:id", func(c *gin.Context) {
-		db.Exec("DELETE FROM rules WHERE id=?", c.Param("id"))
+		if _, err := db.Exec("DELETE FROM rules WHERE id=?", c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
 		scheduleApply()
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
