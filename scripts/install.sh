@@ -72,9 +72,64 @@ WantedBy=multi-user.target
 EOF
 cp "$REPO_DIR/systemd/proxygw.service" /etc/systemd/system/
 
+
+echo "[5.5/6] Installing Xray and Mosdns and their Systemd services..."
+if [ ! -f "/usr/local/bin/mosdns" ]; then
+    wget -qO /tmp/mosdns.zip "https://github.com/IrineSistiana/mosdns/releases/download/v5.3.3/mosdns-linux-amd64.zip"
+    unzip -qo /tmp/mosdns.zip mosdns -d /usr/local/bin/
+    chmod +x /usr/local/bin/mosdns
+fi
+
+if [ ! -f "/usr/local/bin/xray" ]; then
+    wget -qO /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
+    unzip -qo /tmp/xray.zip xray -d /usr/local/bin/
+    chmod +x /usr/local/bin/xray
+fi
+
+cat << 'EOF' > "$REPO_DIR/systemd/mosdns.service"
+[Unit]
+Description=Mosdns Service
+After=network.target network-online.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/proxygw/core/mosdns
+ExecStart=/usr/local/bin/mosdns start -d /root/proxygw/core/mosdns
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat << 'EOF' > "$REPO_DIR/systemd/xray.service"
+[Unit]
+Description=Xray Service
+After=network.target network-online.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/proxygw/core/xray
+ExecStart=/usr/local/bin/xray run -confdir /root/proxygw/core/xray
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cp "$REPO_DIR/systemd/mosdns.service" /etc/systemd/system/
+cp "$REPO_DIR/systemd/xray.service" /etc/systemd/system/
+
 echo "[6/6] Starting services..."
 systemctl daemon-reload
-systemctl enable --now proxygw
+systemctl enable --now proxygw mosdns xray
 
 # Automatically generate a secure password if it's a fresh install
 # Wait a few seconds for the database to be initialized by the backend
