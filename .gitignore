@@ -4,3 +4,4 @@
 /config/*.db
 /config/bootstrap_password.txt
 /.backup/
+/core/xray/config.json
