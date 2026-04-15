@@ -1,0 +1,6 @@
+/core/mosdns/mosdns.log
+/core/xray/access.log
+/core/xray/error.log
+/config/*.db
+/config/bootstrap_password.txt
+/.backup/
