@@ -55,6 +55,14 @@ systemctl restart proxygw
 
 ## 其他特性
 
+4) 系统并发与极限优化
+- 数据库引入 SQLite WAL 模式，十倍提升读写并发，彻底解决 `database is locked`。
+- Gin API 路由开启全局 Gzip 压缩，显著降低日志流与配置拉取的带宽占用。
+- /api/login 新增并发限流与错误延时（Rate-limit），防局域网字典爆破。
+- 彻底剥离废弃的 Mosdns 日志嗅探下发逻辑，大幅降低 CPU/IO 占用。
+- 前端资源完全本地化 (100% 离线断网可用)。
+
+
 1) 运行模式切换
 - Mode A: 纯 TProxy + nftables（停用 FRR）
 - Mode B: 基于 OSPF 的动态路由注入（启用 FRR）

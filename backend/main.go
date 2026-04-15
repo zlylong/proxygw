@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	_ "github.com/mattn/go-sqlite3"
@@ -123,7 +124,17 @@ func initDB() {
 	db, err = sql.Open("sqlite3", "../config/proxygw.db")
 	if err != nil {
 		log.Fatal(err)
+
+	// Enable WAL mode for high concurrency
+	db.Exec("PRAGMA journal_mode=WAL;")
+	db.Exec("PRAGMA synchronous=NORMAL;")
 	}
+
+	// Enable WAL mode for high concurrency
+	db.Exec("PRAGMA journal_mode=WAL;")
+	db.Exec("PRAGMA synchronous=NORMAL;")
+	db.Exec("PRAGMA busy_timeout=5000;")
+
 
 	tables := []string{
 		`CREATE TABLE IF NOT EXISTS routes_table (
@@ -273,54 +284,6 @@ func ospfController() {
 
 		if updated {
 			lastUpdate = time.Now()
-		}
-	}
-}
-
-func watchDnsLogs() {
-	var lastSize int64 = 0
-	logPath := "/root/proxygw/core/mosdns/mosdns.log"
-	for {
-		time.Sleep(3 * time.Second)
-		info, err := os.Stat(logPath)
-		if err != nil {
-			continue
-		}
-		if info.Size() < lastSize {
-			lastSize = 0
-		}
-		if info.Size() == lastSize {
-			continue
-		}
-
-		f, err := os.Open(logPath)
-		if err != nil {
-			continue
-		}
-		f.Seek(lastSize, 0)
-		buf := make([]byte, info.Size()-lastSize)
-		f.Read(buf)
-		f.Close()
-		lastSize = info.Size()
-
-		lines := strings.Split(string(buf), "\n")
-		for _, line := range lines {
-			if strings.Contains(line, "forward_remote") && strings.Contains(line, "query:") {
-				parts := strings.Split(line, "query: ")
-				if len(parts) > 1 {
-					domain := strings.TrimSuffix(strings.Split(parts[1], " ")[0], ".")
-					go func(d string) {
-						ips, err := net.LookupIP(d)
-						if err == nil {
-							for _, ip := range ips {
-								if ipv4 := ip.To4(); ipv4 != nil {
-									db.Exec("INSERT INTO routes_table (ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, ?, 'dns', datetime('now'), datetime('now'), 3600, 'candidate', 0) ON CONFLICT(ip) DO UPDATE SET last_seen=datetime('now'), miss_count=0", ipv4.String(), d)
-								}
-							}
-						}
-					}(domain)
-				}
-			}
 		}
 	}
 }
@@ -636,10 +599,11 @@ func main() {
 	syncFRRConfig()
 	initDB()
 	go ospfController()
-	go watchDnsLogs()
 	go cronUpdater()
 
 	r := gin.Default()
+	r.Use(gzip.Gzip(gzip.DefaultCompression))
+	r.Use(gzip.Gzip(gzip.DefaultCompression))
 	registerAPIRoutes(r)
 
 	r.Static("/ui", "../frontend/dist")

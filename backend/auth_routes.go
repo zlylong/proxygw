@@ -18,6 +18,7 @@ type SessionInfo struct {
 }
 
 var sessions sync.Map
+var loginAttempts sync.Map
 
 func createSession() string {
 	b := make([]byte, 16)
@@ -111,7 +112,20 @@ func verifyAndMaybeMigratePassword(input string) (bool, error) {
 }
 
 func registerAuthRoutes(public *gin.RouterGroup, authed *gin.RouterGroup) {
+var loginAttempts sync.Map 
+
 	public.POST("/login", func(c *gin.Context) {
+		ip := c.ClientIP()
+		val, _ := loginAttempts.LoadOrStore(ip, 0)
+		attempts := val.(int)
+		if attempts > 10 {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many attempts"})
+			return
+		}
+		if attempts > 5 {
+			time.Sleep(2 * time.Second)
+		}
+
 		var req struct{ Password string }
 		if c.BindJSON(&req) != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "bad request"})
@@ -128,9 +142,11 @@ func registerAuthRoutes(public *gin.RouterGroup, authed *gin.RouterGroup) {
 			return
 		}
 		if !ok {
+			loginAttempts.Store(ip, attempts+1)
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
+		loginAttempts.Delete(ip)
 		token := createSession()
 		c.JSON(http.StatusOK, gin.H{"token": token})
 	})
