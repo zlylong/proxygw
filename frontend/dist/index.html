@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProxyGW 透明代理管理系统</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        [v-cloak] { display: none; }
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+        .terminal { background-color: #1e1e1e; color: #00ff00; font-family: monospace; padding: 10px; border-radius: 6px; height: 200px; overflow-y: auto; font-size: 13px;}
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 h-screen overflow-hidden flex">
+    <div id="app" class="flex w-full h-full" v-cloak>
+        <!-- Toast -->
+        <div v-if="toastMsg" class="fixed top-5 right-5 px-6 py-3 rounded shadow-lg transition-all z-50 text-white font-medium" :class="toastType === 'error' ? 'bg-red-500' : 'bg-green-500'">
+            {{ toastMsg }}
+        </div>
+        
+                <!-- Node Edit Modal -->
+        <div v-if="showNodeModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                <h3 class="text-lg font-bold mb-4">{{ editingNode.id ? '编辑节点' : '添加节点' }}</h3>
+                <div class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">节点名称</label>
+                            <input type="text" v-model="editingNode.name" class="w-full border rounded p-2 text-sm focus:outline-blue-500" placeholder="如: HK-01">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">协议类型</label>
+                            <select v-model="editingNode.type" class="w-full border rounded p-2 text-sm focus:outline-blue-500">
+                                <option value="Vmess">Vmess</option>
+                                <option value="Vless">Vless</option>
+                                <option value="Custom">Custom (任意协议)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">地址 (Address)</label>
+                            <input type="text" v-model="editingNode.address" class="w-full border rounded p-2 text-sm focus:outline-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">端口 (Port)</label>
+                            <input type="number" v-model="editingNode.port" class="w-full border rounded p-2 text-sm focus:outline-blue-500">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">UUID / 密码</label>
+                        <input type="text" v-model="editingNode.uuid" class="w-full border rounded p-2 text-sm focus:outline-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">
+                            附加参数 / 高级配置 (JSON)
+                            <span v-if="editingNode.type === 'Custom'" class="text-red-500 text-xs ml-2">Custom模式下，必须提供完整的 outbound 协议 JSON。</span>
+                        </label>
+                        <textarea v-model="editingNode.params" rows="6" class="w-full border rounded p-2 text-sm font-mono focus:outline-blue-500" placeholder='{"streamSettings": {"network": "ws"}}'></textarea>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-2 mt-6">
+                    <button @click="showNodeModal = false" class="px-4 py-2 border rounded hover:bg-gray-50 text-sm">取消</button>
+                    <button @click="saveNode" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm">保存</button>
+                </div>
+            </div>
+        </div>
+
+<!-- Rollback Modal -->
+        <div v-if="showRollbackModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-lg p-6 max-w-sm w-full">
+                <h3 class="text-lg font-bold mb-4">选择 Xray 安装版本</h3>
+                <div v-if="xrayVersions.length === 0" class="text-center py-4 text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>获取 Github 版本列表中...</div>
+                <div v-else class="space-y-4">
+                    <select v-model="selectedRollbackVersion" class="w-full border rounded p-2 text-sm">
+                        <option value="">请选择要安装的版本</option>
+                        <option v-for="v in xrayVersions" :key="v" :value="v">{{ v }}</option>
+                    </select>
+                    <div class="flex justify-end space-x-2 mt-4">
+                        <button @click="showRollbackModal = false" class="px-4 py-2 border rounded hover:bg-gray-50 text-sm">取消</button>
+                        <button @click="confirmRollback" :disabled="!selectedRollbackVersion || isUpdating['rollback_specific']" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 text-sm"><i v-if="isUpdating['rollback_specific']" class="fas fa-spinner fa-spin mr-1"></i>确认安装</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Password Modal -->
+        <div v-if="showPwdModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white rounded-lg p-6 w-96 shadow-2xl text-gray-800">
+                <h3 class="text-lg font-bold mb-4">修改密码</h3>
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">旧密码</label>
+                    <input v-model="pwdForm.old" type="password" class="w-full p-2 border rounded focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="mb-6">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">新密码</label>
+                    <input v-model="pwdForm.new" type="password" class="w-full p-2 border rounded focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button @click="showPwdModal = false" class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">取消</button>
+                    <button @click="changePwd" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">确认修改</button>
+                </div>
+            </div>
+        </div>
+<!-- Confirm Dialog -->
+        <div v-if="confirmData.show" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full">
+                <h3 class="text-lg font-bold mb-4">系统提示</h3>
+                <p class="mb-6 text-gray-700">{{ confirmData.msg }}</p>
+                <div class="flex justify-end space-x-3">
+                    <button @click="confirmData.show = false" class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">取消</button>
+                    <button @click="doConfirm" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">确认</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="!token" class="absolute inset-0 bg-gray-900 bg-opacity-90 flex items-center justify-center z-50">
+            <div class="bg-white p-8 rounded-lg shadow-2xl w-96">
+                <h2 class="text-2xl font-bold mb-6 text-center text-gray-800">ProxyGW 登录</h2>
+                <input v-model="password" type="password" class="w-full border border-gray-300 p-3 mb-4 rounded focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="请输入密码 (默认 admin)" @keyup.enter="login">
+                <button @click="login" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold p-3 rounded transition duration-200">登录系统</button>
+            </div>
+        </div>
+        <aside class="w-64 bg-gray-900 text-white flex flex-col shadow-xl z-10">
+            <div class="p-6 flex items-center space-x-3 bg-gray-950">
+                <i class="fa-solid fa-network-wired text-blue-500 text-2xl"></i>
+                <span class="text-xl font-bold tracking-wider">ProxyGW</span>
+            </div>
+            <nav class="flex-1 mt-6">
+                <ul class="space-y-2">
+                    <li v-for="tab in tabs" :key="tab.id">
+                        <a href="#" @click.prevent="activeTab = tab.id; loadData()" 
+                           :class="['flex items-center px-6 py-3 transition-colors duration-200', 
+                                    activeTab === tab.id ? 'bg-blue-600 text-white border-l-4 border-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-white border-l-4 border-transparent']">
+                            <i :class="['w-6', tab.icon]"></i>
+                            <span>{{ tab.label }}</span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+            <div class="p-4 bg-gray-950 text-xs text-gray-500 text-center space-y-3">
+                <div class="flex justify-center space-x-4">
+                    <button @click="showPwdModal = true" class="hover:text-white transition"><i class="fa-solid fa-key"></i> 修改密码</button>
+                    <button @click="logout" class="hover:text-white transition"><i class="fa-solid fa-arrow-right-from-bracket"></i> 退出</button>
+                </div>
+                <div>ProxyGW v1.3.0 <br> Debian 13 | Xray | FRR</div>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col h-full overflow-hidden">
+            <header class="bg-white shadow-sm border-b px-8 py-4 flex justify-between items-center z-0">
+                <h2 class="text-2xl font-semibold text-gray-700">{{ currentTabLabel }}</h2>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm font-bold border rounded px-2 py-1" :class="sysStatus.mode==='A' ? 'bg-purple-100 text-purple-800' : 'bg-orange-100 text-orange-800'">
+                        当前模式: {{ sysStatus.mode === 'A' ? 'Mode A (全局网关 TProxy)' : 'Mode B (OSPF 动态发布)' }}
+                    </span>
+                    <button @click="toggleMode" class="bg-gray-200 text-gray-700 text-sm px-3 py-1 rounded hover:bg-gray-300 shadow"><i class="fa-solid fa-exchange mr-1"></i>切换模式</button>
+                    <button @click="applyConfig" class="bg-indigo-600 text-white text-sm px-3 py-1 rounded hover:bg-indigo-700 shadow"><i class="fa-solid fa-check mr-1"></i>应用配置 (Xray重启)</button>
+                    
+                    <span class="flex items-center text-sm text-gray-500 ml-4">
+                        <span class="w-3 h-3 rounded-full mr-2" :class="sysStatus.xray ? 'bg-green-500' : 'bg-red-500'"></span> Xray
+                    </span>
+                    <span class="flex items-center text-sm text-gray-500">
+                        <span class="w-3 h-3 rounded-full mr-2" :class="sysStatus.ospf ? 'bg-green-500' : 'bg-red-500'"></span> FRR OSPF
+                    </span>
+                    <span class="flex items-center text-sm text-gray-500">
+                        <span class="w-3 h-3 rounded-full mr-2" :class="sysStatus.mosdns ? 'bg-green-500' : 'bg-red-500'"></span> Mosdns
+                    </span>
+                </div>
+            </header>
+
+            <div class="flex-1 overflow-auto p-8">
+                <transition name="fade" mode="out-in">
+                    
+                    <!-- Nodes -->
+                    <div v-if="activeTab === 'nodes'" key="nodes">
+                        <div class="flex justify-between mb-4">
+                            <div class="space-x-2">
+                                <button @click="importNodeUrl" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"><i class="fa-solid fa-link mr-2"></i>URL 导入 (vmess / vless)</button>
+                                <button @click="openAddNode" class="bg-gray-200 text-gray-700 px-4 py-2 rounded shadow hover:bg-gray-300"><i class="fa-solid fa-plus mr-2"></i>手动添加</button>
+                            </div>
+                            <button @click="pingNodes" class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700"><i class="fa-solid fa-bolt mr-2"></i>TCPing 测速</button>
+                        </div>
+                        <div class="bg-white rounded-lg shadow overflow-hidden">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">节点名称</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">地址:端口</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">类型</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">延迟</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
+                                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr v-for="node in nodes" :key="node.id">
+                                        <td class="px-6 py-4 whitespace-nowrap">{{ node.name }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ node.address }}:{{ node.port }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap"><span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">{{ node.type }}</span></td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span v-if="node.ping === 0" class="text-gray-400">-</span>
+                                            <span v-else-if="node.ping > 0" :class="node.ping < 100 ? 'text-green-600 font-bold' : 'text-orange-500'">{{ node.ping }} ms</span>
+                                            <span v-else class="text-red-500">Timeout</span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span v-if="node.active" class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded">启用</span>
+                                            <span v-else class="bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded">停用</span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-right space-x-2">
+                                            <button @click="toggleNode(node.id)" class="text-blue-600 hover:text-blue-900">{{ node.active ? '停用' : '启用' }}</button>
+                                            <button @click="editNode(node)" class="text-indigo-600 hover:text-indigo-900">编辑</button>
+                                            <button @click="deleteNode(node.id)" class="text-red-600 hover:text-red-900">删除</button>
+                                        </td>
+                                    </tr>
+                                    <tr v-if="nodes.length === 0"><td colspan="6" class="px-6 py-4 text-center text-gray-500">暂无节点数据</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Rules -->
+                    <div v-else-if="activeTab === 'rules'" key="rules">
+                        
+                        <div class="bg-white p-4 rounded-lg shadow mb-4 flex items-end space-x-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">规则类型</label>
+                                <select v-model="newRule.type" class="border border-gray-300 rounded px-3 py-2 w-40">
+                                    <option value="domain">Domain (域名)</option>
+                                    <option value="geosite">Geosite (站点集)</option>
+                                    <option value="ip">IP (IP地址/CIDR)</option>
+                                    <option value="geoip">GeoIP (IP集)</option>
+                                </select>
+                            </div>
+                            <div class="flex-1">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">匹配值 (如 google.com, cn, 8.8.8.8/32)</label>
+                                <input v-model="newRule.value" list="ruleSuggestions" type="text" class="border border-gray-300 rounded px-3 py-2 w-full" placeholder="输入或选择匹配值...">
+                                <datalist id="ruleSuggestions">
+                                    <template v-if="newRule.type === 'geosite'">
+                                        <option v-for="tag in categories.geosite" :key="tag" :value="tag">{{ tag }}</option>
+                                    </template>
+                                    <template v-if="newRule.type === 'geoip'">
+                                        <option v-for="tag in categories.geoip" :key="tag" :value="tag">{{ tag }}</option>
+                                    </template>
+                                </datalist>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">策略绑定 (对应的节点/出口)</label>
+                                <select v-model="newRule.policy" class="border border-gray-300 rounded px-3 py-2 w-48">
+                                    <option value="proxy">默认代理 (Proxy)</option>
+                                    <option value="direct">直连 (Direct)</option>
+                                    <option value="block">拦截 (Block)</option>
+                                    <optgroup label="指定节点">
+                                        <option v-for="node in nodes" :key="node.id" :value="'proxy-' + node.id">
+                                            {{ node.name }}
+                                        </option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                            <div>
+                                <button @click="addRule" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 h-[42px]"><i class="fa-solid fa-plus mr-2"></i>添加规则</button>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-lg shadow overflow-hidden">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">规则类别</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">匹配值</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">策略绑定 (outbound)</th>
+                                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr v-for="rule in rules" :key="rule.id">
+                                        <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ rule.type }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ rule.value }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span class="px-2 py-1 rounded text-xs font-bold"
+                                                  :class="{'bg-green-100 text-green-800': rule.policy==='direct', 'bg-blue-100 text-blue-800': rule.policy.startsWith('proxy'), 'bg-red-100 text-red-800': rule.policy==='block'}">
+                                                {{ rule.policy.startsWith('proxy-') ? (nodes.find(n => 'proxy-'+n.id === rule.policy)?.name || rule.policy) : rule.policy }}
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-right">
+                                            <button @click="deleteRule(rule.id)" class="text-red-600 hover:text-red-900">删除</button>
+                                        </td>
+                                    </tr>
+                                    <tr v-if="rules.length === 0"><td colspan="4" class="px-6 py-4 text-center text-gray-500">暂无规则数据</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- DNS -->
+                    <div v-else-if="activeTab === 'dns'" key="dns" class="space-y-6">
+                        <div class="grid grid-cols-2 gap-6">
+                            <div class="bg-white p-6 rounded-lg shadow">
+                                <h3 class="text-lg font-medium border-b pb-2 mb-4">Mosdns 基础配置</h3>
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">路由模式 (防泄漏方案)</label>
+                                        <select v-model="dns.mode" class="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="smart">无泄漏模式 (推荐): 智能并发查询，非国内 IP 自动回退 Remote，绝对无泄漏</option>
+                                            <option value="strict">严格模式: 未知域名一律发送给 Remote 解析，绝对无泄漏</option>
+                                            <option value="fast">国内优先模式: 未知域名发送给 Local 解析，速度快但有泄漏风险</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">国内上游 DNS <span class="text-xs text-gray-400 font-normal ml-2">支持 tls:// / https:// (DoT/DoH)</span></label>
+                                        <input type="text" v-model="dns.local" placeholder="例: 114.114.114.114 或 https://223.5.5.5/dns-query" class="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">国外上游 DNS (代理前缀) <span class="text-xs text-gray-400 font-normal ml-2">支持 tls:// / https:// (DoT/DoH)</span></label>
+                                        <input type="text" v-model="dns.remote" placeholder="例: 8.8.8.8 或 tls://8.8.4.4" class="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                    <div class="flex items-center mt-4">
+                                        <input type="checkbox" v-model="dns.lazy" class="h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                        <label class="ml-2 block text-sm text-gray-900">开启 Lazy Cache (加速 DNS 解析)</label>
+                                    </div>
+                                    <button @click="saveDns" class="mt-4 bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 w-full">保存并应用</button>
+                                </div>
+                            </div>
+                            <div class="bg-white p-6 rounded-lg shadow flex flex-col">
+                                <h3 class="text-lg font-medium border-b pb-2 mb-4">实时解析流</h3>
+                                <div class="terminal flex-1 text-xs">
+                                    <div v-for="(log, i) in dnsLogs" :key="i" class="break-all">{{ log }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- OSPF -->
+                    <div v-else-if="activeTab === 'ospf'" key="ospf" class="space-y-6">
+                        <div class="grid grid-cols-3 gap-6">
+                            <div class="bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
+                                <div class="text-sm font-medium text-gray-500">OSPF 邻居状态</div>
+                                <div class="mt-2 text-2xl font-bold text-gray-900">{{ ospf.neighbors }} <span class="text-sm text-green-500 font-normal">Active Neighbors</span></div>
+                            </div>
+                            <div class="bg-white p-6 rounded-lg shadow border-l-4 border-green-500">
+                                <div class="text-sm font-medium text-gray-500">已发布路由 (Stable Set)</div>
+                                <div class="mt-2 text-3xl font-bold text-gray-900">{{ ospf.published }} <span class="text-sm text-gray-500 font-normal">条前缀</span></div>
+                            </div>
+                            <div class="bg-white p-6 rounded-lg shadow border-l-4 border-orange-500">
+                                <div class="text-sm font-medium text-gray-500">待发布路由 (Pending Set)</div>
+                                <div class="mt-2 text-3xl font-bold text-gray-900">{{ ospf.pending }} <span class="text-sm text-gray-500 font-normal">等待老化/重试</span></div>
+                            </div>
+                        </div>
+                        <div class="bg-white p-6 rounded-lg shadow">
+                            <h3 class="text-lg font-medium border-b pb-2 mb-4 flex justify-between">
+                                <span>OSPF 增量控制器日志 (FRR vtysh)</span>
+                            </h3>
+                            <div class="terminal h-64">
+                                <div v-for="(log, i) in ospf.logs" :key="i" :class="log.includes('[ADD]') ? 'text-green-400' : (log.includes('[DEL]') ? 'text-red-400' : 'text-blue-300')">{{ log }}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- System & Update -->
+                    <div v-else-if="activeTab === 'system'" key="system" class="space-y-6">
+                        <div class="grid grid-cols-2 gap-6">
+                            <div class="bg-white p-6 rounded-lg shadow">
+                                <h3 class="text-lg font-medium border-b pb-2 mb-4">服务器资源</h3>
+                                <div class="space-y-4">
+                                    <div>
+                                        <div class="flex justify-between text-sm mb-1"><span>CPU 负载</span><span>{{ sysStatus.cpu }}%</span></div>
+                                        <div class="w-full bg-gray-200 rounded-full h-2.5"><div class="bg-blue-600 h-2.5 rounded-full" :style="'width: '+Math.min(sysStatus.cpu,100)+'%'"></div></div>
+                                    </div>
+                                    <div>
+                                        <div class="flex justify-between text-sm mb-1"><span>内存使用</span><span>{{ sysStatus.ram }}%</span></div>
+                                        <div class="w-full bg-gray-200 rounded-full h-2.5"><div class="bg-purple-600 h-2.5 rounded-full" :style="'width: '+Math.min(sysStatus.ram,100)+'%'"></div></div>
+                                    </div>
+                                    <div class="pt-4 border-t">
+                                        <div class="text-sm text-gray-500 mb-1">Xray 流量接口 (API)</div>
+                                        <div class="flex justify-between text-sm font-mono">
+                                            <span class="text-green-600">↓ {{ sysStatus.down }}</span>
+                                            <span class="text-blue-600">↑ {{ sysStatus.up }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white p-6 rounded-lg shadow">
+                                <h3 class="text-lg font-medium border-b pb-2 mb-4">核心组件更新与回滚</h3>
+                                <div class="space-y-4">
+                                    <div class="flex justify-between items-center">
+                                        <div><div class="font-bold">Xray Core</div><div class="text-xs text-gray-500">透明代理引擎 <span v-if="sysStatus.xrayVersion" class="ml-1 px-1 bg-gray-100 rounded border">{{ sysStatus.xrayVersion }}</span></div></div>
+                                        <div class="space-x-2">
+                                            <button @click="openRollbackModal" class="bg-gray-100 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-200 disabled:opacity-50">指定版本</button>
+                                            <button @click="updateComp('rollback_xray')" :disabled="isUpdating['rollback_xray']" class="bg-gray-100 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-200 disabled:opacity-50" title="回滚到上一次安装的版本"><i v-if="isUpdating['rollback_xray']" class="fas fa-spinner fa-spin mr-1"></i>本地回滚</button>
+                                            <button @click="updateComp('xray')" :disabled="isUpdating['xray']" class="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm hover:bg-blue-200 disabled:opacity-50"><i v-if="isUpdating['xray']" class="fas fa-spinner fa-spin mr-1"></i>拉取最新</button>
+                                        </div>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <div><div class="font-bold">GeoData (Rules) <span v-if="sysStatus.geoVersion && sysStatus.geoVersion !== 'Unknown'" class="ml-1 px-1 bg-gray-100 text-gray-600 rounded border font-normal text-xs">{{ sysStatus.geoVersion }}</span></div><div class="text-xs text-gray-500">geosite.dat / geoip.dat</div></div>
+                                        <button @click="updateComp('geodata')" :disabled="isUpdating['geodata']" class="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm hover:bg-blue-200 disabled:opacity-50"><i v-if="isUpdating['geodata']" class="fas fa-spinner fa-spin mr-1"></i>更新规则库</button>
+                                    </div>
+                                    <div class="flex items-center justify-between pt-2 mt-2 border-t">
+                                        <div class="flex items-center">
+                                            <input type="checkbox" v-model="cron.enabled" @change="saveCron" class="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2 cursor-pointer">
+                                            <span class="text-sm text-gray-700">启用每日自动更新规则库 (Cron)</span>
+                                        </div>
+                                        <div v-if="cron.enabled" class="flex items-center text-sm text-gray-600">
+                                            <span>执行时间:</span>
+                                            <input type="time" v-model="cron.time" @change="saveCron" class="ml-2 border rounded p-1 text-sm focus:outline-blue-500">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-6 rounded-lg shadow">
+                            <h3 class="text-lg font-medium border-b pb-2 mb-4">Xray 透明代理架构分析</h3>
+                            <ul class="space-y-3 text-sm text-gray-700">
+                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>入站协议:</strong> dokodemo-door (端口: 12345)</li>
+                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>透明接管:</strong> TProxy (sockopt.tproxy = true)</li>
+                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>流量嗅探:</strong> Sniffing 开启 (http/tls destOverride)</li>
+                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>出站标签支持:</strong> direct, proxy, block 正常加载</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                
+                    <!-- Xray Config -->
+                    <div v-else-if="activeTab === 'xray_config'" key="xray_config">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-bold">Xray Core 配置 (自动生成)</h2>
+                            <button @click="loadConfigs" class="text-gray-500 hover:text-blue-500"><i class="fa-solid fa-rotate"></i> 刷新</button>
+                        </div>
+                        <pre class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-x-auto text-sm" style="height: 70vh;">{{ xrayConfigStr }}</pre>
+                    </div>
+
+                    <!-- Mosdns Config -->
+                    <div v-else-if="activeTab === 'mosdns_config'" key="mosdns_config">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-bold">Mosdns 配置</h2>
+                            <button @click="loadConfigs" class="text-gray-500 hover:text-blue-500"><i class="fa-solid fa-rotate"></i> 刷新</button>
+                        </div>
+                        <pre class="bg-gray-900 text-yellow-400 p-4 rounded-lg overflow-x-auto text-sm" style="height: 70vh;">{{ mosdnsConfigStr }}</pre>
+                    </div>
+
+                        </transition>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, onMounted, watch } = Vue;
+
+        createApp({
+            setup() {
+                                const showNodeModal = ref(false);
+                const editingNode = ref({ id: null, name: '', type: 'Vmess', address: '', port: 443, uuid: '', params: '{}' });
+
+                const openAddNode = () => {
+                    editingNode.value = { id: null, name: 'New Node', type: 'Vmess', address: '1.2.3.4', port: 443, uuid: '', params: '{}' };
+                    showNodeModal.value = true;
+                };
+
+                const editNode = (node) => {
+                    editingNode.value = { ...node };
+                    if (!editingNode.value.params) editingNode.value.params = '{}';
+                    if (typeof editingNode.value.params === 'object') {
+                        editingNode.value.params = JSON.stringify(editingNode.value.params, null, 2);
+                    }
+                    showNodeModal.value = true;
+                };
+
+                const saveNode = async () => {
+                    try {
+                        const payload = {
+                            Name: editingNode.value.name,
+                            Type: editingNode.value.type,
+                            Address: editingNode.value.address,
+                            Port: parseInt(editingNode.value.port) || 443,
+                            UUID: editingNode.value.uuid,
+                            Params: editingNode.value.params
+                        };
+                        
+                        let url = '/api/nodes';
+                        let method = 'POST';
+                        
+                        if (editingNode.value.id) {
+                            url = `/api/nodes/${editingNode.value.id}`;
+                            method = 'PUT';
+                        }
+                        
+                        const res = await apiFetch(url, { method: method, body: JSON.stringify(payload) });
+                        if (res.ok) {
+                            showToast("节点保存成功！");
+                            showNodeModal.value = false;
+                            loadData();
+                        } else {
+                            showToast("保存失败，请检查填写内容", "error");
+                        }
+                    } catch (e) {
+                        showToast("保存出错", "error");
+                    }
+                };
+
+const showRollbackModal = ref(false);
+                const xrayVersions = ref([]);
+                const selectedRollbackVersion = ref('');
+
+                const openRollbackModal = () => {
+                    showRollbackModal.value = true;
+                    if (xrayVersions.value.length === 0) {
+                        fetchXrayVersions();
+                    }
+                };
+
+                const fetchXrayVersions = async () => {
+                    try {
+                        const res = await apiFetch('/api/xray/versions');
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.versions) {
+                                xrayVersions.value = data.versions;
+                            }
+                        }
+                    } catch (e) {
+                        showToast("获取版本列表失败", "error");
+                        showRollbackModal.value = false;
+                    }
+                };
+
+                const confirmRollback = async () => {
+                    if (!selectedRollbackVersion.value) return;
+                    isUpdating.value['rollback_specific'] = true;
+                    showToast("安装任务已触发，请稍候...", "success");
+                    try {
+                        const res = await apiFetch('/api/update/xray', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ version: selectedRollbackVersion.value })
+                        });
+                        if (res.ok) {
+                            showToast('指定版本安装成功！');
+                            showRollbackModal.value = false;
+                            loadData();
+                        } else {
+                            const data = await res.json().catch(()=>({}));
+                            showToast('安装失败: ' + (data.error || '未知错误'), 'error');
+                        }
+                    } catch (e) {
+                        showToast('安装出错', 'error');
+                    }
+                    isUpdating.value['rollback_specific'] = false;
+                };
+
+                
+                const showPwdModal = ref(false);
+                const pwdForm = ref({ old: '', new: '' });
+                const logout = () => {
+                    token.value = '';
+                    localStorage.removeItem('token');
+                };
+                const changePwd = async () => {
+                    if(!pwdForm.value.old || !pwdForm.value.new) return showToast("请填写完整", "error");
+                    const res = await apiFetch('/api/password', { method: 'POST', body: JSON.stringify({ Old: pwdForm.value.old, New: pwdForm.value.new }) });
+                    const data = await res.json();
+                    if(res.ok) {
+                        showToast("密码修改成功，请重新登录！");
+                        showPwdModal.value = false;
+                        setTimeout(logout, 1500);
+                    } else {
+                        showToast(data.error || "修改失败", "error");
+                    }
+                };
+
+                const activeTab = ref('system');
+                const toastMsg = ref('');
+                const toastType = ref('success');
+                const isUpdating = ref({});
+                const showToast = (msg, type = 'success') => {
+                    toastMsg.value = msg;
+                    toastType.value = type;
+                    setTimeout(() => { toastMsg.value = ''; }, 3000);
+                };
+                const confirmData = ref({ show: false, msg: '', onConfirm: null });
+                const customConfirm = (msg, callback) => {
+                    confirmData.value = { show: true, msg, onConfirm: callback };
+                };
+                const doConfirm = () => {
+                    if (confirmData.value.onConfirm) confirmData.value.onConfirm();
+                    confirmData.value.show = false;
+                };
+
+
+                const token = ref(localStorage.getItem('token') || '');
+                const password = ref('');
+                const login = async () => {
+                    try {
+                        const res = await fetch('/api/login', { 
+                            method: 'POST', 
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ password: password.value }) 
+                        });
+                        if(res.ok) {
+                            const data = await res.json();
+                            token.value = data.token;
+                            localStorage.setItem('token', data.token);
+                            loadData();
+                        } else {
+                            showToast("密码错误", "error");
+                        }
+                    } catch (e) {
+                        showToast("网络错误", "error");
+                    }
+                };
+                
+                const apiFetch = async (url, options = {}) => {
+                    if(!options.headers) options.headers = {};
+                    options.headers['Authorization'] = 'Bearer ' + token.value;
+                    const res = await fetch(url, options);
+                    if(res.status === 401) {
+                        token.value = '';
+                        localStorage.removeItem('token');
+                    }
+                    return res;
+                };
+
+                let ws = null;
+                watch(activeTab, (newTab) => {
+                    if(ws) { ws.close(); ws = null; }
+                    loadData();
+                    if(newTab === 'dns') {
+                        dnsLogs.value = [];
+                        ws = new WebSocket(`ws://${window.location.host}/api/dns/logs/ws`);
+                        ws.onmessage = (e) => {
+                            dnsLogs.value.push(e.data);
+                            if(dnsLogs.value.length > 100) dnsLogs.value.shift();
+                        };
+                    }
+                });
+
+                const tabs = [
+                    { id: 'system', icon: 'fa-gauge', label: '系统与更新' },
+                    { id: 'nodes', icon: 'fa-server', label: '节点管理' },
+                    { id: 'rules', icon: 'fa-shield-halved', label: '路由分流规则' },
+                    { id: 'dns', icon: 'fa-globe', label: 'DNS 与上游' },
+                    { id: 'ospf', icon: 'fa-route', label: 'OSPF 状态' },
+                    { id: 'xray_config', icon: 'fa-file-code', label: 'Xray 配置' },
+                    { id: 'mosdns_config', icon: 'fa-file-lines', label: 'Mosdns 配置' },
+                ];
+
+                const currentTabLabel = computed(() => tabs.find(t => t.id === activeTab.value)?.label);
+
+                const nodes = ref([]);
+                const rules = ref([]);
+                const categories = ref({ geosite: [], geoip: [] });
+                const dns = ref({ local: '', remote: '', lazy: true, mode: 'smart' });
+                const dnsLogs = ref([]);
+                const ospf = ref({ neighbors: 0, published: 0, pending: 0, logs: [] });
+                                const sysStatus = ref({ mode: 'B', xray: false, ospf: false, mosdns: false, cpu: 0, ram: 0 });
+                const cron = ref({ enabled: false, time: '04:00' });
+                const saveCron = async () => {
+                    await apiFetch('/api/cron', { method: 'POST', body: JSON.stringify({ Enabled: cron.value.enabled, Time: cron.value.time }) });
+                    showToast("自动更新设置已保存");
+                };
+
+                
+                const xrayConfigStr = ref("");
+                const mosdnsConfigStr = ref("");
+
+                const loadConfigs = async () => {
+                    apiFetch('/api/config/xray').then(r => r.text()).then(t => xrayConfigStr.value = t);
+                    apiFetch('/api/config/mosdns').then(r => r.text()).then(t => mosdnsConfigStr.value = t);
+                };
+
+                let initLoaded = false;
+                const loadData = async (isInit = false) => {
+                    apiFetch('/api/status').then(r=>r.json()).then(d => sysStatus.value = d);
+                    if (isInit === true || !initLoaded) {
+                        apiFetch('/api/cron').then(r=>r.json()).then(d => { if(d) { cron.value.enabled = d.enabled; cron.value.time = d.time || '04:00'; }});
+                        apiFetch('/api/dns').then(r=>r.json()).then(d => dns.value = d);
+                        initLoaded = true;
+                    }
+                    if(activeTab.value === 'nodes') apiFetch('/api/nodes').then(r=>r.json()).then(d => nodes.value = d);
+                    if(activeTab.value === 'rules') { apiFetch('/api/rules').then(r=>r.json()).then(d => rules.value = d); if(categories.value.geosite.length===0) apiFetch('/api/rules/categories').then(r=>r.json()).then(d => categories.value = d); }
+                    if(activeTab.value === 'ospf') apiFetch('/api/ospf').then(r=>r.json()).then(d => ospf.value = d);
+                    if(activeTab.value === 'xray_config' || activeTab.value === 'mosdns_config') loadConfigs();
+ 
+};
+
+                const applyConfig = async () => {
+                    isUpdating.value['apply'] = true;
+                    showToast("配置已下发，服务将平滑重启...");
+                    await apiFetch('/api/apply', {method: 'POST'});
+                    setTimeout(() => { isUpdating.value['apply'] = false; loadData(); }, 1500);
+                };
+
+                const toggleMode = async () => {
+                    const newMode = sysStatus.value.mode === 'A' ? 'B' : 'A';
+                    if(confirm(`切换到 Mode ${newMode}？
+Mode A: 全局网关 (nftables)
+Mode B: 旁路由发布 (OSPF)`)) {
+                        await apiFetch('/api/mode', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
+                        loadData();
+                    }
+                }
+
+                const importNodeUrl = async () => {
+                    let url = prompt("请输入 vmess:// 或 vless:// 链接");
+                    if(!url) return;
+                    const res = await apiFetch('/api/nodes/import', { method: 'POST', body: JSON.stringify({ Url: url }) });
+                    if(res.ok) { showToast("导入成功！"); loadData(); } else { showToast("导入失败，格式不支持或解析出错"); }
+                }
+
+                const pingNodes = async () => {
+                    await apiFetch('/api/nodes/ping', { method: 'POST' });
+                    showToast("TCPing 测速已在后台运行，请稍后刷新查看结果。");
+                    setTimeout(loadData, 3000);
+                }
+
+
+
+                const deleteNode = (id) => { customConfirm("删除此节点？", async () => { await apiFetch(`/api/nodes/${id}`, {method: 'DELETE'}); loadData(); }); };
+                const toggleNode = async (id) => { await apiFetch(`/api/nodes/${id}/toggle`, {method: 'PUT'}); loadData(); };
+
+                const newRule = ref({ type: 'domain', value: '', policy: 'proxy' });
+                const addRule = async () => {
+                    if(!newRule.value.value) return showToast("匹配值不能为空");
+                    await apiFetch('/api/rules', { method: 'POST', body: JSON.stringify({ Type: newRule.value.type, Value: newRule.value.value, Policy: newRule.value.policy }) });
+                    newRule.value.value = '';
+                    loadData();
+                };
+                const deleteRule = (id) => { customConfirm("删除此分流规则？", async () => { await apiFetch(`/api/rules/${id}`, {method: 'DELETE'}); loadData(); }); };
+
+                const saveDns = async () => { await apiFetch('/api/dns', { method: 'POST', body: JSON.stringify({ Local: dns.value.local, Remote: dns.value.remote, Lazy: dns.value.lazy, Mode: dns.value.mode }) }); showToast("DNS 配置已保存！"); loadData(); }
+                const updateComp = async (comp) => { 
+                    customConfirm(`确认执行此操作？这可能需要几十秒时间下载更新。`, async () => {
+                        isUpdating.value[comp] = true;
+                        showToast("任务已触发，后台下载中...", "success");
+                        try {
+                            const res = await apiFetch(`/api/update/${comp}`, { method: 'POST' });
+                            if(res.ok) {
+                                showToast("操作成功完成！");
+                            } else {
+                                showToast("更新失败，请检查网络", "error");
+                            }
+                        } catch (e) {
+                            showToast("请求出错", "error");
+                        }
+                        isUpdating.value[comp] = false;
+                        loadData();
+                    }); 
+                }
+
+                onMounted(() => { loadData(true); setInterval(() => loadData(false), 5000); });
+
+                return { cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

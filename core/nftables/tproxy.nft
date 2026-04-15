@@ -1,0 +1,15 @@
+#!/usr/sbin/nft -f
+flush ruleset
+table inet proxygw {
+    chain prerouting {
+        type filter hook prerouting priority mangle; policy accept;
+        ip daddr { 127.0.0.0/8, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12 } return
+        meta l4proto { tcp, udp } mark set 1 tproxy to 127.0.0.1:12345 accept
+    }
+    chain output {
+        type route hook output priority mangle; policy accept;
+        ip daddr { 127.0.0.0/8, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12 } return
+        meta mark 0x02 return
+        meta l4proto { tcp, udp } mark set 1 accept
+    }
+}

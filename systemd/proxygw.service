@@ -1,0 +1,12 @@
+[Unit]
+Description=ProxyGW Backend Service
+After=network.target frr.service nftables.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root/proxygw/backend
+ExecStart=/root/proxygw/backend/proxygw-backend
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

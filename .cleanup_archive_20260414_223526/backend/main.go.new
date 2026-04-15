@@ -1,0 +1,1021 @@
+package main
+
+import (
+	"bufio"
+	"crypto/rand"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/gin-gonic/gin"
+	_ "github.com/mattn/go-sqlite3"
+)
+
+var db *sql.DB
+var (
+	applyTimer    *time.Timer
+	applyMutex    sync.Mutex
+	cachedGeosite []string
+	cachedGeoip   []string
+	cacheMutex    sync.Mutex
+)
+
+var maxGeositeLogLines = 100
+var sessionToken string
+
+func initDB() {
+	var err error
+	db, err = sql.Open("sqlite3", "proxygw.db")
+	if err != nil {
+		log.Fatal(err)
+	}
+	db.Exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+	db.Exec("CREATE TABLE IF NOT EXISTS nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, grp TEXT, type TEXT, address TEXT, port INTEGER, uuid TEXT, params TEXT, active INTEGER DEFAULT 1, ping INTEGER DEFAULT 0)")
+	db.Exec("CREATE TABLE IF NOT EXISTS rules (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT)")
+	db.Exec("CREATE TABLE IF NOT EXISTS routes_table (ip TEXT PRIMARY KEY, domain TEXT, source TEXT, first_seen DATETIME, last_seen DATETIME, ttl INTEGER, status TEXT, miss_count INTEGER DEFAULT 0)")
+	db.Exec("CREATE TABLE IF NOT EXISTS ospf_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, ts DATETIME, msg TEXT)")
+
+	// init settings
+	initSet := map[string]string{
+		"mode":         "B",
+		"dns_local":    "223.5.5.5, 119.29.29.29",
+		"dns_remote":   "8.8.8.8, 1.1.1.1",
+		"dns_lazy":     "true",
+		"dns_mode":     "smart",
+		"cron_enabled": "true",
+		"cron_time":    "04:00",
+		"password":     "admin",
+	}
+	for k, v := range initSet {
+		db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", k, v)
+	}
+}
+
+func addOspfLog(msg string) {
+	db.Exec("INSERT INTO ospf_logs (ts, msg) VALUES (datetime('now'), ?)", msg)
+	db.Exec("DELETE FROM ospf_logs WHERE id NOT IN (SELECT id FROM ospf_logs ORDER BY id DESC LIMIT 50)")
+}
+
+func ospfController() {
+	const (
+		MaxTTL         = 1800
+		MinTTL         = 60
+		MissThreshold  = 3
+		CandidateTTL   = 300
+		PublishMaxLife = 86400
+		MaxBatch       = 50
+	)
+	for {
+		time.Sleep(10 * time.Second)
+
+		var mode string
+		db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
+
+		if mode != "B" {
+			// If not in Mode B, we need to withdraw any published routes
+			rowsDel, err := db.Query("SELECT ip FROM routes_table WHERE status='published' LIMIT ?", MaxBatch)
+			if err == nil {
+				var toClear []string
+				for rowsDel.Next() {
+					var ip string
+					rowsDel.Scan(&ip)
+					toClear = append(toClear, ip)
+				}
+				rowsDel.Close()
+
+				for _, ip := range toClear {
+					addOspfLog("[DEL] " + ip + " (Mode A Switch)")
+					exec.Command("vtysh", "-c", "conf t", "-c", fmt.Sprintf("no ip route %s 127.0.0.1 tag 100", func(s string) string {
+						if strings.Contains(s, "/") {
+							parts := strings.Split(s, "/")
+							if net.ParseIP(parts[0]) != nil { return s }
+							return "127.0.0.1/32"
+						}
+						if net.ParseIP(s) != nil { return s + "/32" }
+						return "127.0.0.1/32"
+					}(ip))).Run()
+					db.Exec("UPDATE routes_table SET status='candidate' WHERE ip=?", ip)
+				}
+			}
+			continue
+		}
+
+		db.Exec("UPDATE routes_table SET ttl = ttl - 10 WHERE source != 'static'")
+		db.Exec("UPDATE routes_table SET status='expired' WHERE ttl <= 0 AND status != 'expired' AND source != 'static'")
+
+		// Promote candidate -> published
+		rowsPromote, _ := db.Query("SELECT ip FROM routes_table WHERE status='candidate' AND source != 'static' LIMIT ?", MaxBatch)
+		var toPublish []string
+		for rowsPromote.Next() {
+			var ip string
+			rowsPromote.Scan(&ip)
+			toPublish = append(toPublish, ip)
+		}
+		rowsPromote.Close()
+
+		for _, ip := range toPublish {
+			addOspfLog("[ADD] " + ip)
+			exec.Command("vtysh", "-c", "conf t", "-c", fmt.Sprintf("ip route %s 127.0.0.1 tag 100", ip+"/32")).Run()
+			db.Exec("UPDATE routes_table SET status='published', ttl=?, miss_count=0 WHERE ip=?", MinTTL*2, ip)
+		}
+
+		// Delete expired
+		rowsExp, _ := db.Query("SELECT ip FROM routes_table WHERE status='expired' OR (source='static' AND ttl<=0) LIMIT ?", MaxBatch)
+		var toDel []string
+		for rowsExp.Next() {
+			var ip string
+			rowsExp.Scan(&ip)
+			toDel = append(toDel, ip)
+		}
+		rowsExp.Close()
+
+		for _, ip := range toDel {
+			addOspfLog("[DEL] " + ip)
+			exec.Command("vtysh", "-c", "conf t", "-c", fmt.Sprintf("no ip route %s 127.0.0.1 tag 100", func(s string) string {
+				if strings.Contains(s, "/") {
+					parts := strings.Split(s, "/")
+					if net.ParseIP(parts[0]) != nil {
+						return s
+					}
+					return "127.0.0.1/32"
+				}
+				if net.ParseIP(s) != nil {
+					return s + "/32"
+				}
+				return "127.0.0.1/32"
+			}(ip))).Run()
+			db.Exec("DELETE FROM routes_table WHERE ip=?", ip)
+		}
+
+		// Auto publish static routes that are candidates
+		rowsStatic, _ := db.Query("SELECT ip FROM routes_table WHERE source='static' AND status='candidate' LIMIT ?", MaxBatch)
+		var toPublishStatic []string
+		for rowsStatic.Next() {
+			var ip string
+			rowsStatic.Scan(&ip)
+			toPublishStatic = append(toPublishStatic, ip)
+		}
+		rowsStatic.Close()
+
+		for _, ip := range toPublishStatic {
+			addOspfLog("[ADD] " + ip + " (Static)")
+			exec.Command("vtysh", "-c", "conf t", "-c", fmt.Sprintf("ip route %s 127.0.0.1 tag 100", func(s string) string {
+				if strings.Contains(s, "/") {
+					parts := strings.Split(s, "/")
+					if net.ParseIP(parts[0]) != nil {
+						return s
+					}
+					return "127.0.0.1/32"
+				}
+				if net.ParseIP(s) != nil {
+					return s + "/32"
+				}
+				return "127.0.0.1/32"
+			}(ip))).Run()
+			db.Exec("UPDATE routes_table SET status='published' WHERE ip=?", ip)
+		}
+	}
+}
+
+func downloadAndVerify(urlStr, dest string, minSize int64) error {
+	resp, err := http.Get(urlStr)
+	if err != nil { return err }
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 { return fmt.Errorf("bad status: %d", resp.StatusCode) }
+	
+	out, err := os.Create(dest)
+	if err != nil { return err }
+	defer out.Close()
+	
+	size, err := io.Copy(out, resp.Body)
+	if err != nil { return err }
+	if size < minSize { return fmt.Errorf("file too small: %d", size) }
+	return nil
+}
+
+func updateGeoData() error {
+	resp, err := http.Get("https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest")
+	if err != nil { return err }
+	defer resp.Body.Close()
+	var rel struct { TagName string `json:"tag_name"` }
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil { return err }
+	tag := rel.TagName
+	if tag == "" { return fmt.Errorf("no tag found") }
+
+	baseUrl := "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/" + tag + "/"
+	err1 := downloadAndVerify(baseUrl+"direct-list.txt", "/tmp/geosite_cn.txt", 10*1024)
+	err2 := downloadAndVerify(baseUrl+"geoip.dat", "/tmp/geoip.dat", 1024*1024)
+	err3 := downloadAndVerify(baseUrl+"geosite.dat", "/tmp/geosite.dat", 1024*1024)
+	err4 := downloadAndVerify("https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/cn.txt", "/tmp/geoip_cn.txt", 10*1024)
+
+	if err1 == nil && err2 == nil && err3 == nil && err4 == nil {
+		exec.Command("cp", "/tmp/geosite_cn.txt", "/usr/local/bin/geosite_cn.txt").Run()
+		exec.Command("cp", "/tmp/geoip.dat", "/usr/local/bin/geoip.dat").Run()
+		exec.Command("cp", "/tmp/geosite.dat", "/usr/local/bin/geosite.dat").Run()
+		exec.Command("cp", "/tmp/geoip_cn.txt", "/usr/local/bin/geoip_cn.txt").Run()
+		exec.Command("cp", "/usr/local/bin/geosite_cn.txt", "/root/proxygw/core/mosdns/").Run()
+		exec.Command("cp", "/usr/local/bin/geoip.dat", "/root/proxygw/core/mosdns/").Run()
+		exec.Command("cp", "/usr/local/bin/geoip_cn.txt", "/root/proxygw/core/mosdns/").Run()
+		
+		os.WriteFile("/usr/local/bin/geodata.ver", []byte(tag), 0644)
+
+		cacheMutex.Lock()
+		cachedGeosite = nil
+		cachedGeoip = nil
+		cacheMutex.Unlock()
+		applyMosdnsConfig()
+		applyXrayConfig()
+		return nil
+	}
+	return fmt.Errorf("download failed")
+}
+
+func cronUpdater() {
+	for {
+		time.Sleep(1 * time.Minute)
+		var enabled, cronTime string
+		db.QueryRow("SELECT value FROM settings WHERE key='cron_enabled'").Scan(&enabled)
+		db.QueryRow("SELECT value FROM settings WHERE key='cron_time'").Scan(&cronTime)
+		if cronTime == "" { cronTime = "04:00" }
+		
+		now := time.Now()
+		if enabled == "true" && now.Format("15:04") == cronTime {
+			log.Println("Running daily cron update for GeoData...")
+			err1 := downloadAndVerify("https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/direct-list.txt", "/tmp/geosite_cn.txt", 10*1024)
+			err2 := downloadAndVerify("https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat", "/tmp/geoip.dat", 1024*1024)
+			err4 := downloadAndVerify("https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/cn.txt", "/tmp/geoip_cn.txt", 10*1024)
+			if err1 == nil && err2 == nil && err4 == nil {
+				exec.Command("cp", "/tmp/geosite_cn.txt", "/usr/local/bin/geosite_cn.txt").Run()
+				exec.Command("cp", "/tmp/geoip.dat", "/usr/local/bin/geoip.dat").Run()
+				exec.Command("cp", "/tmp/geoip_cn.txt", "/usr/local/bin/geoip_cn.txt").Run()
+				exec.Command("cp", "/usr/local/bin/geosite_cn.txt", "/root/proxygw/core/mosdns/").Run()
+				exec.Command("cp", "/usr/local/bin/geoip.dat", "/root/proxygw/core/mosdns/").Run()
+				exec.Command("cp", "/usr/local/bin/geoip_cn.txt", "/root/proxygw/core/mosdns/").Run()
+				applyMosdnsConfig()
+				applyXrayConfig()
+				cacheMutex.Lock()
+				cachedGeosite = nil
+				cachedGeoip = nil
+				cacheMutex.Unlock()
+			}
+			time.Sleep(61 * time.Minute)
+		}
+	}
+}
+
+func watchDnsLogs() {
+	var lastSize int64 = 0
+	logPath := "/root/proxygw/core/mosdns/mosdns.log"
+	for {
+		time.Sleep(3 * time.Second)
+		info, err := os.Stat(logPath)
+		if err != nil { continue }
+		if info.Size() < lastSize { lastSize = 0 }
+		if info.Size() == lastSize { continue }
+
+		f, err := os.Open(logPath)
+		if err != nil { continue }
+		f.Seek(lastSize, 0)
+		scanner := bufio.NewScanner(f)
+		
+		var lines []string
+		for scanner.Scan() {
+			lines = append(lines, scanner.Text())
+			if len(lines) > maxGeositeLogLines {
+				lines = lines[1:]
+			}
+		}
+		lastSize, _ = f.Seek(0, 1)
+		f.Close()
+
+		updated := false
+		for _, line := range lines {
+			if strings.Contains(line, "forward_remote") {
+				parts := strings.Split(line, " ")
+				domain := ""
+				for i, p := range parts {
+					if p == "query" && i+1 < len(parts) {
+						domain = strings.TrimSuffix(parts[i+1], ".")
+					}
+				}
+				if domain != "" {
+					ipOut, err := exec.Command("dig", "+short", domain, "@127.0.0.1", "-p", "53").Output()
+					if err == nil {
+						ips := strings.Split(strings.TrimSpace(string(ipOut)), "
+")
+						for _, ip := range ips {
+							if net.ParseIP(ip) != nil {
+								res, _ := db.Exec("INSERT INTO routes_table (ip, domain, source, first_seen, last_seen, ttl, status) VALUES (?, ?, 'dns', datetime('now'), datetime('now'), ?, 'candidate') ON CONFLICT(ip) DO UPDATE SET ttl = ttl + ?, last_seen = datetime('now')", ip, domain, 300, 1800)
+								ra, _ := res.RowsAffected()
+								if ra > 0 { updated = true }
+							}
+						}
+					}
+				}
+			}
+		}
+		if updated { log.Println("Routes updated from Mosdns logs") }
+	}
+}
+
+var (
+	upgrader   = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+)
+
+func scheduleApply() {
+	applyMutex.Lock()
+	defer applyMutex.Unlock()
+	if applyTimer != nil { applyTimer.Stop() }
+	applyTimer = time.AfterFunc(3*time.Second, func() {
+		applyMosdnsConfig()
+		applyXrayConfig()
+	})
+}
+
+func formatUpstreams(addrs string, useSocks bool) string {
+	parts := strings.Split(addrs, ",")
+	var res []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			if useSocks {
+				res = append(res, fmt.Sprintf("{ addr: "%s", socks5: "127.0.0.1:10808" }", p))
+			} else {
+				res = append(res, fmt.Sprintf("{ addr: "%s" }", p))
+			}
+		}
+	}
+	if len(res) == 0 { return "[{ addr: "114.114.114.114" }]" }
+	return "[" + strings.Join(res, ", ") + "]"
+}
+
+func applyMosdnsConfig() {
+	var local, remote, lazyStr, mode string
+	db.QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local)
+	db.QueryRow("SELECT value FROM settings WHERE key='dns_remote'").Scan(&remote)
+	db.QueryRow("SELECT value FROM settings WHERE key='dns_lazy'").Scan(&lazyStr)
+	db.QueryRow("SELECT value FROM settings WHERE key='dns_mode'").Scan(&mode)
+	if mode == "" { mode = "smart" }
+
+	dRows, _ := db.Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")
+	var proxyDomains []string
+	for dRows.Next() {
+		var d string
+		dRows.Scan(&d)
+		proxyDomains = append(proxyDomains, d)
+	}
+	dRows.Close()
+	os.WriteFile("../core/mosdns/proxy_domains.txt", []byte(strings.Join(proxyDomains, "
+")), 0644)
+
+	lazyCache := ""
+	if lazyStr == "true" {
+		lazyCache = `  - tag: lazy_cache
+    type: cache
+    args: { size: 10240, lazy_cache_ttl: 86400 }
+`
+	}
+
+	seqStr := `  - tag: main_sequence
+    type: sequence
+    args:
+`
+	if lazyStr == "true" {
+		seqStr += "      - exec: $lazy_cache
+"
+	}
+	if mode == "strict" {
+		seqStr += `      - matches: [ qname $proxy_domain ]
+        exec: $forward_remote
+      - matches: [ qname $geosite_cn ]
+        exec: $forward_local
+      - exec: $forward_remote
+`
+	} else if mode == "fast" {
+		seqStr += `      - matches: [ qname $proxy_domain ]
+        exec: $forward_remote
+      - matches: [ qname $geosite_cn ]
+        exec: $forward_local
+      - exec: $forward_local
+`
+	} else { // smart fallback
+		seqStr += `      - matches: [ qname $proxy_domain ]
+        exec: $forward_remote
+      - matches: [ qname $geosite_cn ]
+        exec: $forward_local
+      - exec: $fallback
+`
+	}
+
+	smartPlugins := ""
+	if mode == "smart" {
+		smartPlugins = `  - tag: geoip_cn
+    type: ip_set
+    args:
+      files:
+        - "/root/proxygw/core/mosdns/geoip_cn.txt"
+  - tag: local_sequence
+    type: sequence
+    args:
+      - exec: $forward_local
+      - matches: [ "!resp_ip $geoip_cn" ]
+        exec: drop_resp
+  - tag: fallback
+    type: fallback
+    args:
+      primary: local_sequence
+      secondary: forward_remote
+      threshold: 500
+      always_standby: true
+`
+	}
+
+	config := fmt.Sprintf(`log:
+  level: info
+  file: "/root/proxygw/core/mosdns/mosdns.log"
+plugins:
+  - tag: proxy_domain
+    type: domain_set
+    args:
+      files:
+        - "/root/proxygw/core/mosdns/proxy_domains.txt"
+  - tag: geosite_cn
+    type: domain_set
+    args:
+      files:
+        - "/root/proxygw/core/mosdns/geosite_cn.txt"
+%s%s  - tag: forward_local
+    type: forward
+    args: { upstreams: %s }
+  - tag: forward_remote
+    type: forward
+    args: { upstreams: %s }
+  - tag: udp_server
+    type: udp_server
+    args:
+      entry: main_sequence
+      listen: 0.0.0.0:53
+`, lazyCache, smartPlugins, formatUpstreams(local, false), formatUpstreams(remote, true), seqStr)
+
+	os.WriteFile("../core/mosdns/config.yaml", []byte(config), 0644)
+	exec.Command("systemctl", "restart", "mosdns").Run()
+}
+
+func applyXrayConfig() error {
+	config := map[string]interface{}{
+		"log":    map[string]string{"loglevel": "warning"},
+		"api":    map[string]interface{}{"services": []string{"StatsService"}, "tag": "api"},
+		"stats":  map[string]interface{}{},
+		"policy": map[string]interface{}{"system": map[string]interface{}{"statsInboundDownlink": true, "statsInboundUplink": true}},
+		"inbounds": []map[string]interface{}{
+			{
+				"port": 12345, "protocol": "dokodemo-door",
+				"settings":       map[string]interface{}{"network": "tcp,udp", "followRedirect": true},
+				"streamSettings": map[string]interface{}{"sockopt": map[string]string{"tproxy": "tproxy"}},
+				"sniffing":       map[string]interface{}{"enabled": true, "destOverride": []string{"http", "tls"}},
+			},
+			{
+				"listen": "127.0.0.1", "port": 10085, "protocol": "dokodemo-door",
+				"settings": map[string]interface{}{"address": "127.0.0.1"},
+				"tag":      "api_inbound",
+			},
+			{
+				"listen": "127.0.0.1", "port": 10808, "protocol": "socks",
+				"settings": map[string]interface{}{"auth": "noauth", "udp": true},
+				"tag":      "dns_socks_inbound",
+			},
+		},
+		"outbounds": []map[string]interface{}{
+			{"protocol": "freedom", "tag": "direct"},
+			{"protocol": "blackhole", "tag": "block"},
+		},
+		"routing": map[string]interface{}{
+			"domainStrategy": "AsIs",
+			"rules": []map[string]interface{}{
+				{"inboundTag": []string{"api_inbound"}, "outboundTag": "api", "type": "field"},
+				{"inboundTag": []string{"dns_socks_inbound"}, "outboundTag": "proxy", "type": "field"},
+			},
+		},
+	}
+
+	rows, _ := db.Query("SELECT id, name, type, address, port, uuid, COALESCE(params, '{}') FROM nodes WHERE active=1")
+	defer rows.Close()
+	var proxyTags []string
+	for rows.Next() {
+		var name, ntype, address, uuid, paramsStr string
+		var port, id int
+		rows.Scan(&id, &name, &ntype, &address, &port, &uuid, &paramsStr)
+
+		var outbound map[string]interface{}
+		ntypeLow := strings.ToLower(ntype)
+
+		if ntypeLow == "custom" {
+			var customOutbound map[string]interface{}
+			if err := json.Unmarshal([]byte(paramsStr), &customOutbound); err == nil && customOutbound != nil {
+				outbound = customOutbound
+				outbound["tag"] = fmt.Sprintf("proxy-%d", id)
+				if _, ok := outbound["protocol"]; !ok { outbound["protocol"] = "freedom" }
+			}
+		} else if ntypeLow == "vmess" {
+			outbound = map[string]interface{}{
+				"protocol": "vmess", "tag": fmt.Sprintf("proxy-%d", id),
+				"settings": map[string]interface{}{
+					"vnext": []map[string]interface{}{{
+						"address": address, "port": port,
+						"users": []map[string]interface{}{{"id": uuid, "alterId": 0}},
+					}},
+				},
+			}
+			var p map[string]interface{}
+			if err := json.Unmarshal([]byte(paramsStr), &p); err == nil && len(p) > 0 {
+				outbound["streamSettings"] = p
+			}
+		} else if ntypeLow == "vless" {
+			var p map[string]string
+			json.Unmarshal([]byte(paramsStr), &p)
+
+			user := map[string]interface{}{"id": uuid, "encryption": "none"}
+			if p["encryption"] != "" { user["encryption"] = p["encryption"] }
+			if p["flow"] != "" { user["flow"] = p["flow"] }
+
+			streamSettings := map[string]interface{}{"network": p["type"]}
+			if streamSettings["network"] == "" { streamSettings["network"] = "tcp" }
+			if p["security"] != "" { streamSettings["security"] = p["security"] }
+			if p["security"] == "reality" {
+				streamSettings["realitySettings"] = map[string]interface{}{
+					"fingerprint": p["fp"],
+					"serverName":  p["sni"],
+					"publicKey":   p["pbk"],
+					"shortId":     p["sid"],
+					"spiderX":     "/",
+				}
+			} else if p["security"] == "tls" {
+				streamSettings["tlsSettings"] = map[string]interface{}{"serverName": p["sni"]}
+			}
+			outbound = map[string]interface{}{
+				"protocol": "vless", "tag": fmt.Sprintf("proxy-%d", id),
+				"settings": map[string]interface{}{
+					"vnext": []map[string]interface{}{{
+						"address": address, "port": port,
+						"users": []interface{}{user},
+					}},
+				},
+				"streamSettings": streamSettings,
+			}
+		}
+
+		if outbound != nil {
+			config["outbounds"] = append(config["outbounds"].([]map[string]interface{}), outbound)
+			proxyTags = append(proxyTags, fmt.Sprintf("proxy-%d", id))
+		}
+	}
+
+	if len(proxyTags) > 0 {
+		config["outbounds"] = append(config["outbounds"].([]map[string]interface{}), map[string]interface{}{
+			"protocol": "freedom", "tag": "proxy",
+		})
+	}
+
+	rRows, _ := db.Query("SELECT type, value, policy FROM rules")
+	defer rRows.Close()
+	rules := config["routing"].(map[string]interface{})["rules"].([]map[string]interface{})
+	for rRows.Next() {
+		var rtype, value, policy string
+		rRows.Scan(&rtype, &value, &policy)
+		rule := map[string]interface{}{"type": "field", "outboundTag": policy}
+
+		if rtype == "geosite" || rtype == "domain" {
+			rule["domain"] = []string{rtype + ":" + value}
+			rules = append(rules, rule)
+		} else if rtype == "geoip" || rtype == "ip" || rtype == "geolocation" {
+			if rtype == "geolocation" { rtype = "geoip" }
+			if rtype == "ip" {
+				rule["ip"] = []string{value}
+			} else {
+				rule["ip"] = []string{rtype + ":" + value}
+			}
+			rules = append(rules, rule)
+		} else {
+			continue
+		}
+	}
+
+	if len(proxyTags) > 0 {
+		for _, r := range rules {
+			if r["outboundTag"] == "proxy" {
+				r["outboundTag"] = proxyTags[0]
+			}
+		}
+	}
+	config["routing"].(map[string]interface{})["rules"] = rules
+
+	staticRows, _ := db.Query("SELECT value FROM rules WHERE type='ip' AND policy LIKE 'proxy%'")
+	var staticIPs []string
+	staticIPsMap := make(map[string]bool)
+	for staticRows.Next() {
+		var ip string
+		staticRows.Scan(&ip)
+		staticIPs = append(staticIPs, ip)
+		staticIPsMap[ip] = true
+	}
+	staticRows.Close()
+
+	oldRows, _ := db.Query("SELECT ip FROM routes_table WHERE source='static'")
+	var toDelete []string
+	for oldRows.Next() {
+		var ip string
+		oldRows.Scan(&ip)
+		if !staticIPsMap[ip] {
+			toDelete = append(toDelete, ip)
+		}
+	}
+	oldRows.Close()
+
+	for _, ipStr := range toDelete {
+		db.Exec("UPDATE routes_table SET miss_count=99, ttl=0, last_seen=datetime('now', '-1 hour') WHERE ip=?", ipStr)
+	}
+
+	for _, ipStr := range staticIPs {
+		db.Exec("INSERT INTO routes_table (ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, 'static_rule', 'static', datetime('now', '-61 seconds'), datetime('now'), 999999999, 'candidate', 0) ON CONFLICT(ip) DO UPDATE SET source='static', status='candidate', first_seen=datetime('now', '-61 seconds'), ttl=999999999, miss_count=0", ipStr)
+	}
+
+	configData, _ := json.MarshalIndent(config, "", "  ")
+
+	os.WriteFile("../core/xray/config.json", configData, 0644)
+	return exec.Command("systemctl", "restart", "xray").Run()
+}
+
+func parseDatFile(path string) []string {
+	return []string{} // Dummy since implementation doesn't matter for the issue
+}
+
+func initGeoCache() {
+	cacheMutex.Lock()
+	if len(cachedGeosite) == 0 { cachedGeosite = parseDatFile("/usr/local/bin/geosite.dat") }
+	if len(cachedGeoip) == 0 { cachedGeoip = parseDatFile("/usr/local/bin/geoip.dat") }
+	cacheMutex.Unlock()
+}
+
+func main() {
+	b := make([]byte, 16)
+	rand.Read(b)
+	sessionToken = fmt.Sprintf("%x", b)
+
+	initDB()
+	
+	// Sync systemd services with Mode
+	var mode string
+	db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
+	if mode == "A" {
+		exec.Command("systemctl", "start", "nftables").Run()
+		exec.Command("systemctl", "stop", "frr").Run()
+	} else {
+		exec.Command("systemctl", "stop", "nftables").Run()
+		exec.Command("systemctl", "start", "frr").Run()
+	}
+
+	go ospfController()
+	go watchDnsLogs()
+	go cronUpdater()
+	go initGeoCache()
+	go initGeoCache()
+
+	r := gin.Default()
+
+	api := r.Group("/api")
+	api.POST("/login", func(c *gin.Context) {
+		var req struct{ Password string }
+		if c.BindJSON(&req) == nil {
+			var pwd string
+			db.QueryRow("SELECT value FROM settings WHERE key='password'").Scan(&pwd)
+			if req.Password == pwd {
+				c.JSON(200, gin.H{"token": sessionToken})
+			} else {
+				c.Status(401)
+			}
+		} else {
+			c.Status(400)
+		}
+	})
+
+	api.Use(func(c *gin.Context) {
+		if c.Request.URL.Path == "/api/login" {
+			return
+		}
+		if c.GetHeader("Authorization") != "Bearer "+sessionToken {
+			c.AbortWithStatusJSON(401, gin.H{"error": "Unauthorized"})
+			return
+		}
+		c.Next()
+	})
+
+	api.GET("/config/xray", func(c *gin.Context) {
+		data, err := os.ReadFile("../core/xray/config.json")
+		if err != nil { c.String(500, err.Error()); return }
+		c.String(200, string(data))
+	})
+	api.GET("/config/mosdns", func(c *gin.Context) {
+		data, err := os.ReadFile("../core/mosdns/config.yaml")
+		if err != nil { c.String(500, err.Error()); return }
+		c.String(200, string(data))
+	})
+
+	api.POST("/password", func(c *gin.Context) {
+		var req struct{ Old, New string }
+		if c.BindJSON(&req) == nil {
+			var pwd string
+			db.QueryRow("SELECT value FROM settings WHERE key='password'").Scan(&pwd)
+			if req.Old == pwd {
+				db.Exec("UPDATE settings SET value=? WHERE key='password'", req.New)
+				c.JSON(200, gin.H{"success": true})
+			} else {
+				c.JSON(400, gin.H{"error": "旧密码错误"})
+			}
+		}
+	})
+
+	api.GET("/status", func(c *gin.Context) {
+		xray := exec.Command("systemctl", "is-active", "--quiet", "xray").Run() == nil
+		frr := exec.Command("systemctl", "is-active", "--quiet", "frr").Run() == nil
+		mosdns := exec.Command("systemctl", "is-active", "--quiet", "mosdns").Run() == nil
+
+		cpuOut, _ := exec.Command("sh", "-c", "top -bn1 | grep 'Cpu(s)' | awk '{print $2}'").Output()
+		cpu, _ := strconv.ParseFloat(strings.TrimSpace(string(cpuOut)), 64)
+		ramOut, _ := exec.Command("sh", "-c", "free | grep Mem | awk '{print $3/$2 * 100.0}'").Output()
+		ram, _ := strconv.ParseFloat(strings.TrimSpace(string(ramOut)), 64)
+		
+		xrayVer := "Unknown"
+		xrayVersionOut, err := exec.Command("xray", "version").Output()
+		if err == nil {
+			lines := strings.Split(string(xrayVersionOut), "
+")
+			if len(lines) > 0 {
+				parts := strings.Split(lines[0], " ")
+				if len(parts) >= 2 { xrayVer = parts[1] }
+			}
+		}
+		
+		geoVer := "Unknown"
+		if data, err := os.ReadFile("/usr/local/bin/geodata.ver"); err == nil && len(data) > 0 {
+			geoVer = strings.TrimSpace(string(data))
+		} else if info, err := os.Stat("/usr/local/bin/geoip.dat"); err == nil {
+			geoVer = info.ModTime().Format("2006-01-02")
+		}
+
+		upStats, _ := exec.Command("curl", "-s", "http://127.0.0.1:10085/StatsService.QueryStats", "-d", "name: \"inbound>>>api_inbound>>>traffic>>>uplink\"").Output()
+		downStats, _ := exec.Command("curl", "-s", "http://127.0.0.1:10085/StatsService.QueryStats", "-d", "name: \"inbound>>>api_inbound>>>traffic>>>downlink\"").Output()
+
+		upStr := "0 MB"
+		downStr := "0 MB"
+		if strings.Contains(string(upStats), "value") { upStr = "Active" }
+		if strings.Contains(string(downStats), "value") { downStr = "Active" }
+
+		c.JSON(200, gin.H{
+			"status": "running", "mode": mode,
+			"xray": xray, "ospf": frr, "mosdns": mosdns, "xrayVersion": xrayVer, "geoVersion": geoVer,
+			"cpu": fmt.Sprintf("%.1f", cpu), "ram": fmt.Sprintf("%.1f", ram),
+			"up": upStr, "down": downStr,
+		})
+	})
+
+	api.GET("/cron", func(c *gin.Context) {
+		var enabled, cronTime string
+		db.QueryRow("SELECT value FROM settings WHERE key='cron_enabled'").Scan(&enabled)
+		db.QueryRow("SELECT value FROM settings WHERE key='cron_time'").Scan(&cronTime)
+		if cronTime == "" { cronTime = "04:00" }
+		c.JSON(200, gin.H{"enabled": enabled == "true", "time": cronTime})
+	})
+
+	api.POST("/cron", func(c *gin.Context) {
+		var req struct {
+			Enabled bool
+			Time    string
+		}
+		if c.BindJSON(&req) == nil {
+			enabledStr := "false"
+			if req.Enabled { enabledStr = "true" }
+			db.Exec("UPDATE settings SET value=? WHERE key='cron_enabled'", enabledStr)
+			db.Exec("UPDATE settings SET value=? WHERE key='cron_time'", req.Time)
+			c.JSON(200, gin.H{"success": true})
+		}
+	})
+
+	api.POST("/mode", func(c *gin.Context) {
+		var req struct{ Mode string }
+		c.BindJSON(&req)
+		db.Exec("UPDATE settings SET value=? WHERE key='mode'", req.Mode)
+		if req.Mode == "A" {
+			exec.Command("systemctl", "start", "nftables").Run()
+			exec.Command("systemctl", "stop", "frr").Run()
+		} else {
+			exec.Command("systemctl", "stop", "nftables").Run()
+			exec.Command("systemctl", "start", "frr").Run()
+		}
+		applyMosdnsConfig()
+		applyXrayConfig()
+		c.JSON(200, gin.H{"success": true})
+	})
+
+	api.GET("/nodes", func(c *gin.Context) {
+		rows, _ := db.Query("SELECT id, name, grp, type, address, port, uuid, COALESCE(params, '{}'), active, ping FROM nodes")
+		defer rows.Close()
+		var nodes []map[string]interface{}
+		for rows.Next() {
+			var id, port, active, ping int
+			var name, grp, ntype, address, uuid, params string
+			rows.Scan(&id, &name, &grp, &ntype, &address, &port, &uuid, &params, &active, &ping)
+			nodes = append(nodes, map[string]interface{}{"id": id, "name": name, "group": grp, "type": ntype, "address": address, "port": port, "uuid": uuid, "params": params, "active": active, "ping": ping})
+		}
+		c.JSON(200, nodes)
+	})
+
+	api.POST("/nodes", func(c *gin.Context) {
+		var n struct {
+			Name, Group, Type, Address, UUID, Params string
+			Port                                     int
+		}
+		if err := c.BindJSON(&n); err == nil {
+			if n.Params == "" { n.Params = "{}" }
+			db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)", n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID, n.Params)
+			scheduleApply()
+			c.JSON(200, gin.H{"success": true})
+		} else { c.JSON(400, gin.H{"error": "Invalid input"}) }
+	})
+
+	api.PUT("/nodes/:id", func(c *gin.Context) {
+		var n struct {
+			Name, Group, Type, Address, UUID, Params string
+			Port                                     int
+		}
+		if err := c.BindJSON(&n); err == nil {
+			if n.Params == "" { n.Params = "{}" }
+			db.Exec("UPDATE nodes SET name=?, grp=?, type=?, address=?, port=?, uuid=?, params=? WHERE id=?", n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID, n.Params, c.Param("id"))
+			scheduleApply()
+			c.JSON(200, gin.H{"success": true})
+		} else { c.JSON(400, gin.H{"error": "Invalid input"}) }
+	})
+
+	api.DELETE("/nodes/:id", func(c *gin.Context) {
+		db.Exec("DELETE FROM nodes WHERE id=?", c.Param("id"))
+		scheduleApply()
+		c.JSON(200, gin.H{"success": true})
+	})
+
+	api.POST("/nodes/:id/toggle", func(c *gin.Context) {
+		db.Exec("UPDATE nodes SET active = CASE WHEN active=1 THEN 0 ELSE 1 END WHERE id=?", c.Param("id"))
+		scheduleApply()
+		c.JSON(200, gin.H{"success": true})
+	})
+
+	api.GET("/rules", func(c *gin.Context) {
+		rows, _ := db.Query("SELECT id, type, value, policy FROM rules")
+		defer rows.Close()
+		var rules []map[string]interface{}
+		for rows.Next() {
+			var id int
+			var rtype, value, policy string
+			rows.Scan(&id, &rtype, &value, &policy)
+			rules = append(rules, map[string]interface{}{"id": id, "type": rtype, "value": value, "policy": policy})
+		}
+		c.JSON(200, rules)
+	})
+
+	api.GET("/dns", func(c *gin.Context) {
+		var local, remote, lazy, mode string
+		db.QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local)
+		db.QueryRow("SELECT value FROM settings WHERE key='dns_remote'").Scan(&remote)
+		db.QueryRow("SELECT value FROM settings WHERE key='dns_lazy'").Scan(&lazy)
+		db.QueryRow("SELECT value FROM settings WHERE key='dns_mode'").Scan(&mode)
+		if mode == "" { mode = "smart" }
+		c.JSON(200, gin.H{"local": local, "remote": remote, "lazy": lazy == "true", "mode": mode})
+	})
+
+	api.POST("/dns", func(c *gin.Context) {
+		var req struct {
+			Local, Remote, Mode string
+			Lazy                bool
+		}
+		if c.BindJSON(&req) == nil {
+			if req.Mode == "" { req.Mode = "smart" }
+			db.Exec("UPDATE settings SET value=? WHERE key='dns_local'", req.Local)
+			db.Exec("UPDATE settings SET value=? WHERE key='dns_remote'", req.Remote)
+			db.Exec("UPDATE settings SET value=? WHERE key='dns_lazy'", fmt.Sprintf("%t", req.Lazy))
+			db.Exec("UPDATE settings SET value=? WHERE key='dns_mode'", req.Mode)
+			applyMosdnsConfig() // Apply INSTANTLY
+			c.JSON(200, gin.H{"success": true})
+		}
+	})
+
+	api.GET("/dns/logs/ws", func(c *gin.Context) {
+		ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil { return }
+		defer ws.Close()
+		cmd := exec.Command("tail", "-f", "-n", "20", "/root/proxygw/core/mosdns/mosdns.log")
+		stdout, _ := cmd.StdoutPipe()
+		cmd.Start()
+		defer cmd.Process.Kill()
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			if err := ws.WriteMessage(websocket.TextMessage, scanner.Bytes()); err != nil { break }
+		}
+	})
+	
+	api.GET("/dns/logs", func(c *gin.Context) {
+		out, _ := exec.Command("tail", "-n", "10", "/root/proxygw/core/mosdns/mosdns.log").Output()
+		lines := strings.Split(strings.TrimSpace(string(out)), "
+")
+		c.JSON(200, lines)
+	})
+
+	api.GET("/ospf", func(c *gin.Context) {
+		var pub, cand int
+		db.QueryRow("SELECT count(*) FROM routes_table WHERE status='published'").Scan(&pub)
+		db.QueryRow("SELECT count(*) FROM routes_table WHERE status='candidate'").Scan(&cand)
+
+		rows, _ := db.Query("SELECT ts, msg FROM ospf_logs ORDER BY id DESC LIMIT 50")
+		var ospfLogs []string
+		for rows.Next() {
+			var ts, msg string
+			rows.Scan(&ts, &msg)
+			ospfLogs = append(ospfLogs, fmt.Sprintf("[%s] %s", ts, msg))
+		}
+		rows.Close()
+
+		frrOut, _ := exec.Command("vtysh", "-c", "show ip ospf neighbor json").Output()
+		neighborsCount := 0
+		if strings.Contains(string(frrOut), "routerId") { neighborsCount = 1 }
+
+		c.JSON(200, gin.H{"neighbors": neighborsCount, "published": pub, "pending": cand, "logs": ospfLogs})
+	})
+
+	api.GET("/xray/versions", func(c *gin.Context) {
+		resp, err := http.Get("https://api.github.com/repos/XTLS/Xray-core/releases")
+		if err != nil {
+			c.JSON(500, gin.H{"error": "Failed to fetch releases"})
+			return
+		}
+		defer resp.Body.Close()
+		var releases []struct {
+			TagName string `json:"tag_name"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+			c.JSON(500, gin.H{"error": "Failed to parse releases"})
+			return
+		}
+		var tags []string
+		for _, r := range releases {
+			tags = append(tags, r.TagName)
+		}
+		c.JSON(200, gin.H{"versions": tags})
+	})
+
+	api.POST("/components/update", func(c *gin.Context) {
+		var req struct{ Component string }
+		c.BindJSON(&req)
+		comp := req.Component
+		if comp == "geodata" {
+			err := updateGeoData()
+			if err == nil { c.JSON(200, gin.H{"success": true}) } else { c.JSON(500, gin.H{"success": false, "error": err.Error()}) }
+		} else if comp == "xray" {
+			var req struct { Version string `json:"version"` }
+			c.ShouldBindJSON(&req)
+			downloadUrl := "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
+			if req.Version != "" && req.Version != "latest" { downloadUrl = fmt.Sprintf("https://github.com/XTLS/Xray-core/releases/download/%s/Xray-linux-64.zip", req.Version) }
+			err := downloadAndVerify(downloadUrl, "/tmp/xray.zip", 5*1024*1024)
+			if err == nil {
+				exec.Command("cp", "/usr/local/bin/xray", "/usr/local/bin/xray.bak").Run()
+				exec.Command("unzip", "-qo", "/tmp/xray.zip", "-d", "/tmp/xray").Run()
+				exec.Command("install", "-m", "755", "/tmp/xray/xray", "/usr/local/bin/xray").Run()
+				exec.Command("systemctl", "restart", "xray").Run()
+				c.JSON(200, gin.H{"success": true})
+			} else { c.JSON(500, gin.H{"success": false, "error": "download failed"}) }
+		} else if comp == "rollback_xray" {
+			exec.Command("cp", "/usr/local/bin/xray.bak", "/usr/local/bin/xray").Run()
+			exec.Command("systemctl", "restart", "xray").Run()
+			c.JSON(200, gin.H{"success": true})
+		}
+	})
+
+	api.POST("/apply", func(c *gin.Context) {
+		applyMosdnsConfig()
+		applyXrayConfig()
+		c.JSON(200, gin.H{"success": true})
+	})
+
+	r.Static("/ui", "../frontend/dist")
+	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusMovedPermanently, "/ui/") })
+
+	log.Println("ProxyGW backend starting on :80")
+	r.Run(":80")
+}
