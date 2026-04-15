@@ -509,7 +509,6 @@
                 const editingNode = ref({ id: null, name: '', type: 'Vmess', address: '', port: 443, uuid: '', params: '{}' });
                 const vlessParams = ref({ type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '', method: 'aes-256-gcm' });
                 const isSubmitting = ref({ apply: false, update: false, node: false, login: false });
-                const isSubmitting = ref({ apply: false, update: false, node: false, login: false });
                 const isLoading = ref({ apply: false, save: false });
 
                 const openAddNode = () => {
@@ -634,14 +633,14 @@
                         if (res.ok) {
                             showToast("节点保存成功！");
                             showNodeModal.value = false;
-                    } finally {
-                        isLoading.value.save = false;
                             loadData();
                         } else {
                             showToast("保存失败，请检查填写内容", "error");
                         }
                     } catch (e) {
                         showToast("保存出错", "error");
+                    } finally {
+                        isLoading.value.save = false;
                     }
                 };
 
@@ -706,9 +705,6 @@ const showRollbackModal = ref(false);
                     token.value = "";
                     showToast("已安全退出");
                 };
-                    token.value = '';
-                    localStorage.removeItem('token');
-                };
                 const changePwd = async () => {
                     if(!pwdForm.value.old || !pwdForm.value.new) return showToast("请填写完整", "error");
                     const res = await apiFetch('/api/password', { method: 'POST', body: JSON.stringify({ Old: pwdForm.value.old, New: pwdForm.value.new }) });
@@ -762,19 +758,26 @@ const showRollbackModal = ref(false);
                         }
                     } catch (e) {
                         showToast("网络错误", "error");
+                    } finally {
+                        isSubmitting.value.login = false;
                     }
                 };
                 
                 const apiFetch = async (url, options = {}) => {
-                    try {
                     if(!options.headers) options.headers = {};
                     options.headers['Authorization'] = 'Bearer ' + token.value;
-                    const res = await fetch(url, options);
-                    if(res.status === 401) {
-                        token.value = '';
-                        localStorage.removeItem('token');
+                    try {
+                        const res = await fetch(url, options);
+                        if(res.status === 401) {
+                            token.value = '';
+                            localStorage.removeItem('token');
+                            showToast("登录已过期", "error");
+                        }
+                        return res;
+                    } catch(e) {
+                        showToast("网络请求失败", "error");
+                        throw e;
                     }
-                    return res;
                 };
 
                                 let ws = null;
