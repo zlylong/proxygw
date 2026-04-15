@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -94,8 +96,13 @@ func registerUpdateRoutes(api *gin.RouterGroup) {
 				Version string `json:"version"`
 			}
 			if err := c.ShouldBindJSON(&req); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid request payload"})
-				return
+				if !errors.Is(err, io.EOF) {
+					c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid request payload"})
+					return
+				}
+			}
+			if strings.TrimSpace(req.Version) == "" {
+				req.Version = "latest"
 			}
 			downloadURL, err := buildXrayDownloadURL(req.Version)
 			if err != nil {

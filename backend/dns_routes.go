@@ -97,8 +97,10 @@ func registerDNSRoutes(api *gin.RouterGroup) {
 			_ = ws.WriteMessage(websocket.TextMessage, []byte("failed to start log stream"))
 			return
 		}
-		defer cmd.Process.Kill()
 		defer func() {
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
 			if err := cmd.Wait(); err != nil {
 				log.Printf("[WARN] dns log tail process exited: %v", err)
 			}
