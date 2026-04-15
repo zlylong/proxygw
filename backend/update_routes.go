@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -11,26 +12,29 @@ import (
 )
 
 func updateGeodata() error {
-	hashZip, err := getGeoDataHash()
+	tag, hashZip, err := getGeoDataVersionAndHash()
 	if err != nil {
 		return fmt.Errorf("failed to fetch geodata hash: %v", err)
 	}
 
-	err = downloadWithVerification("https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/rules.zip", "/tmp/rules.zip", hashZip)
+	downloadURL := "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/" + tag + "/rules.zip"
+	err = downloadWithVerification(downloadURL, "/tmp/rules.zip", hashZip)
 	if err != nil {
 		return fmt.Errorf("geodata validation failed: %v", err)
 	}
 
 	cmds := [][]string{
-		{"unzip", "-qo", "/tmp/rules.zip", "direct-list.txt", "geoip.dat", "-d", "/tmp/"},
+		{"unzip", "-qo", "/tmp/rules.zip", "direct-list.txt", "geoip.dat", "geosite.dat", "-d", "/tmp/"},
 		{"cp", "/tmp/direct-list.txt", "/root/proxygw/core/mosdns/geosite_cn.txt"},
 		{"cp", "/tmp/geoip.dat", "/root/proxygw/core/mosdns/geoip.dat"},
+		{"cp", "/tmp/geosite.dat", "/root/proxygw/core/mosdns/geosite.dat"},
 	}
 	for _, c := range cmds {
 		if err := exec.Command(c[0], c[1:]...).Run(); err != nil {
 			return fmt.Errorf("extraction/copy failed: %v", err)
 		}
 	}
+	os.WriteFile("/root/proxygw/core/mosdns/geodata.ver", []byte(tag), 0644)
 	if err := exec.Command("systemctl", "restart", "mosdns", "xray").Run(); err != nil {
 		return fmt.Errorf("service restart failed: %v", err)
 	}

@@ -11,10 +11,10 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 	api.GET("/rules/categories", func(c *gin.Context) {
 		cacheMutex.Lock()
 		if len(cachedGeosite) == 0 {
-			cachedGeosite = parseDatFile("/usr/local/bin/geosite.dat")
+			cachedGeosite = parseDatFile("/root/proxygw/core/mosdns/geosite.dat")
 		}
 		if len(cachedGeoip) == 0 {
-			cachedGeoip = parseDatFile("/usr/local/bin/geoip.dat")
+			cachedGeoip = parseDatFile("/root/proxygw/core/mosdns/geoip.dat")
 		}
 		resGeosite := cachedGeosite
 		resGeoip := cachedGeoip

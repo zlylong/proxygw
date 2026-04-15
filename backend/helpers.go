@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -134,17 +135,30 @@ func verifySHA256(filePath, expectedHash string) error {
 	return nil
 }
 
-func getGeoDataHash() (string, error) {
-	urlStr := "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/rules.zip.sha256sum"
+func getGeoDataVersionAndHash() (string, string, error) {
+	resp, err := http.Get("https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest")
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return "", "", err
+	}
+	tag := release.TagName
+
+	urlStr := "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/" + tag + "/rules.zip.sha256sum"
 	content, err := getRemoteFileContent(urlStr)
 	if err != nil {
-		return "", err
+		return tag, "", err
 	}
 	parts := strings.Fields(content)
 	if len(parts) > 0 {
-		return parts[0], nil
+		return tag, parts[0], nil
 	}
-	return "", fmt.Errorf("invalid hash file")
+	return tag, "", fmt.Errorf("invalid hash file")
 }
 
 func getXrayHash(version string) (string, error) {
