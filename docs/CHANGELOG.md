@@ -1,48 +1,57 @@
 # ProxyGW Changelog
 
-## 2026-04-15 (Security Hardening & Sandbox)
+## 2026-04-15 (Deep System & UI Optimization, Security, and Fake-IP)
 
 ### Added
-- **Supply Chain Validation**: Added rigorous SHA256/SHA512 hash verification for Xray-core downloads via `.dgst` files.
-- **GeoData Validation**: Added `rules.zip.sha256sum` signature verification for geosite and geoip downloads, preventing malicious file replacement.
-- **Systemd Sandboxing**: Introduced `ProtectSystem=strict`, `NoNewPrivileges=yes`, `PrivateTmp=yes`, and `ReadWritePaths` whitelisting to the `proxygw.service` to confine the backend root process.
-- **Initial Password Generation**: Removed hardcoded `admin` password. First-time installs now generate a secure random password saved to `config/bootstrap_password.txt`.
+- **Deep System Optimization**: 后端 SQLite 强制开启 PRAGMA journal_mode=WAL，读写全并发。
+- **Deep System Optimization**: API 响应引入 Gzip 压缩。
+- **Deep System Optimization**: /api/login 新增动态指数延迟与最大 10 次错误熔断机制。
+- **Deep System Optimization**: 前端资源 (Vue3, Tailwind, FontAwesome) 完成全量本地化下载，支持 100% 离线脱机运行。
+- **Fake-IP Architecture**: 完整引入了 Fake-IP 零延迟直通架构。Xray 开启内置 fakedns 引擎 (198.18.0.0/16)，OSPF (FRR) 在 Mode B 下静态宣告 198.18.0.0/16 路由。
+- **Security**: Supply Chain Validation - Added rigorous SHA256/SHA512 hash verification for Xray-core downloads via .dgst files.
+- **Security**: GeoData Validation - Added rules.zip.sha256sum signature verification for geosite and geoip downloads.
+- **Security**: Systemd Sandboxing - Introduced ProtectSystem=strict, NoNewPrivileges=yes, PrivateTmp=yes to proxygw.service.
+- **Security**: Initial Password Generation - Removed hardcoded admin password. First-time installs now generate a secure random password saved to config/bootstrap_password.txt.
 
 ### Changed
-- `scripts/install.sh` has been upgraded to auto-deploy the hardened Systemd service.
-- `README.md` updated to reflect the new sandboxing model and security posture.
+- 彻底移除了 watchDnsLogs 协程与相关陈旧的 OSPF 动态路由下发逻辑（由于 Fake-IP 架构已上线，此逻辑为无效高负载开销）。
+- 修改 xray_service.go，TProxy 入站开启对 fakedns、http 和 tls 的 Sniffing。
+- 修改 mosdns_service.go，命中 proxy_domains 时瞬间向 Xray 的 FakeDNS 请求假 IP 并阻塞式返回。
+- scripts/install.sh upgraded to auto-deploy the hardened Systemd service and disable systemd-resolved DNS stub.
+- README.md updated to reflect Fake-IP architecture and security posture.
 
-# ProxyGW Changelog
+### Fixed
+- 彻底解决由于 DNS 解析时间与 OSPF 路由下发时间差导致的首包（TCP SYN）漏网与高延迟断流问题。
 
 ## 2026-04-14 (Round 3 Deep Governance)
 
 ### Added
-- Service 层文件：`mosdns_service.go`、`xray_service.go`
-- API 集成测试：`api_integration_test.go`（httptest + 临时 sqlite）
-- 审计报告：`AUDIT-2026-04-14-round3.md`
+- Service 层文件：mosdns_service.go、xray_service.go
+- API 集成测试：api_integration_test.go（httptest + 临时 sqlite）
+- 审计报告：AUDIT-2026-04-14-round3.md
 
 ### Changed
-- `applyMosdnsConfig` 使用 `renderMosdnsConfig()` 生成配置
-- `applyXrayConfig` 使用 `buildBaseXrayConfig()` 初始化基础结构
+- applyMosdnsConfig 使用 renderMosdnsConfig() 生成配置
+- applyXrayConfig 使用 buildBaseXrayConfig() 初始化基础结构
 - 继续保持 geodata 官方 GitHub 更新链路
 
 ### Verification
-- `go test ./... -v` 通过
-- `go vet ./...` 通过
-- `go build -o proxygw-backend .` 通过
-- `systemctl is-active proxygw/mosdns/xray` 均为 active
+- go test ./... -v 通过
+- go vet ./... 通过
+- go build -o proxygw-backend . 通过
+- systemctl is-active proxygw/mosdns/xray 均为 active
 
 ## 2026-04-14 (Round 2 Deep Governance)
 
 ### Added
 - 后端模块化路由文件：auth/dns/xray(update)/nodes/rules/system/config/api
-- `helpers.go` 可测试纯函数集合
-- `helpers_test.go` 回归测试（13 项）
-- 文档：`CHANGELOG.md`、`RELEASE_TEMPLATE.md`、Round2 审计报告
+- helpers.go 可测试纯函数集合
+- helpers_test.go 回归测试（13 项）
+- 文档：CHANGELOG.md、RELEASE_TEMPLATE.md、Round2 审计报告
 
 ### Changed
-- `main.go` 从“路由+业务混合”改为“核心逻辑 + 路由装配”
-- `/api/update/xray` 下载 URL 构建改为 helper 函数统一校验
+- main.go 从“路由+业务混合”改为“核心逻辑 + 路由装配”
+- /api/update/xray 下载 URL 构建改为 helper 函数统一校验
 - geodata 更新链路统一使用 GitHub 官方直连
 
 ### Fixed
@@ -50,6 +59,6 @@
 - 修复运维文档中 build 命令与实际代码结构不一致问题
 
 ### Verification
-- `go test ./... -v` 通过
-- `go build -o proxygw-backend .` 通过
-- `systemctl is-active proxygw/mosdns/xray` 均为 active
+- go test ./... -v 通过
+- go build -o proxygw-backend . 通过
+- systemctl is-active proxygw/mosdns/xray 均为 active

@@ -14,18 +14,36 @@ echo "[1/6] Installing system dependencies..."
 apt-get update
 apt-get install -y build-essential nftables frr sqlite3 curl golang nodejs npm wget unzip
 
-echo "[1.5/6] Disabling systemd-resolved DNS stub listener..."
-mkdir -p /etc/systemd
-sed -i 's/^#*DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf || echo "DNSStubListener=no" >> /etc/systemd/resolved.conf
-systemctl restart systemd-resolved || true
-
-echo "[2/6] Setting up routing rules..."
+echo "[2/6] Setting up routing rules and system settings..."
+# Free port 53 from systemd-resolved
+if grep -q "#DNSStubListener=yes" /etc/systemd/resolved.conf || grep -q "DNSStubListener=yes" /etc/systemd/resolved.conf || ! grep -q "DNSStubListener=no" /etc/systemd/resolved.conf; then
+    echo "Configuring systemd-resolved to free port 53..."
+    sed -i 's/#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
+    sed -i 's/DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
+    # Ensure it is set if not found
+    if ! grep -q "DNSStubListener=no" /etc/systemd/resolved.conf; then
+        echo "DNSStubListener=no" >> /etc/systemd/resolved.conf
+    fi
+    systemctl restart systemd-resolved || true
+fi
 if ! grep -q "100 tproxy" /etc/iproute2/rt_tables; then
     echo "100 tproxy" >> /etc/iproute2/rt_tables
 fi
 # Add rule if not exists
 ip rule show | grep -q "fwmark 0x1 lookup tproxy" || ip rule add fwmark 1 table tproxy
 ip route show table tproxy | grep -q "local default dev lo" || ip route add local default dev lo table tproxy
+
+# Free port 53 from systemd-resolved
+if grep -q "#DNSStubListener=yes" /etc/systemd/resolved.conf || grep -q "DNSStubListener=yes" /etc/systemd/resolved.conf || ! grep -q "DNSStubListener=no" /etc/systemd/resolved.conf; then
+    echo "Configuring systemd-resolved to free port 53..."
+    sed -i 's/#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
+    sed -i 's/DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
+    # Ensure it is set if not found
+    if ! grep -q "DNSStubListener=no" /etc/systemd/resolved.conf; then
+        echo "DNSStubListener=no" >> /etc/systemd/resolved.conf
+    fi
+    systemctl restart systemd-resolved || true
+fi
 
 echo "[3/6] Setting up directory structure..."
 mkdir -p "$REPO_DIR/config"

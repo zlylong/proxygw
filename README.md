@@ -10,6 +10,7 @@ ProxyGW 是一个 Debian 原生部署的透明代理网关，整合 Xray、Mosdn
 - 运行配置输出：
   - Xray: `core/xray/config.json`
   - Mosdns: `core/mosdns/config.yaml`
+  - 架构：实现了真正的 Fake-IP (198.18.0.0/16) 零延迟方案，结合 Xray 内置 fakedns 与 Mosdns 瞬时返回机制。
 
 后端目录（关键）：
 
@@ -58,8 +59,11 @@ systemctl restart proxygw
 - Mode A: 纯 TProxy + nftables（停用 FRR）
 - Mode B: 基于 OSPF 的动态路由注入（启用 FRR）
 
-2) DNS 与分流
+2) DNS 与分流（Fake-IP 零延迟架构）
 - 路由分流中 `policy=proxy` 的 domain 规则会同步到 `core/mosdns/proxy_domains.txt`
+- 命中代理规则的域名由 Mosdns 直接返回保留的 Fake-IP (`198.18.0.0/16`)，完全避免 DNS 泄露与路由表泛洪延迟。
+- Xray 的 TProxy 入站开启 sniffing (http, tls, fakedns)，动态还原真实域名。
+- OSPF (Mode B) 默认静态宣告 `198.18.0.0/16` 路由，使得首包路由秒级响应。
 - 远端 DNS 上游支持 socks5 出站（127.0.0.1:10808）
 
 ## 文档索引
