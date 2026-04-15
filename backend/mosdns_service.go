@@ -10,7 +10,10 @@ func renderMosdnsConfig(local, remote string, lazy bool) string {
     type: cache
     args: { size: 10240, lazy_cache_ttl: 86400 }
 `
-		lazyExec = "      - exec: $lazy_cache\n"
+		lazyExec = `      - exec: $lazy_cache
+      - matches: [ has_resp ]
+        exec: return
+`
 	}
 
 	return fmt.Sprintf(`log:
@@ -33,13 +36,21 @@ plugins:
   - tag: forward_remote
     type: forward
     args: { upstreams: %s }
+  - tag: forward_fakeip
+    type: forward
+    args: { upstreams: [{ addr: "127.0.0.1:5353" }] }
+
   - tag: main_sequence
     type: sequence
     args:
 %s      - matches: [ qname $proxy_domain ]
-        exec: $forward_remote
+        exec: $forward_fakeip
+      - matches: [ has_resp ]
+        exec: return
       - matches: [ qname $geosite_cn ]
         exec: $forward_local
+      - matches: [ has_resp ]
+        exec: return
       - exec: $forward_remote
   - tag: udp_server
     type: udp_server

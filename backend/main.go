@@ -615,6 +615,7 @@ router ospf
  ospf router-id %s
  redistribute static route-map OSPF-EXPORT
  network %s area 0
+ network 198.18.0.0/16 area 0
 !
 route-map OSPF-EXPORT permit 10
  match tag 100
