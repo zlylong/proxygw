@@ -174,7 +174,8 @@ func TestCronSaveAndReadBack(t *testing.T) {
 
 func TestPasswordChangeFlow(t *testing.T) {
 	r := setupTestRouter(t)
-	body := `{"Old":"admin","New":"newpass"}`
+	newPassword := "newpass88"
+	body := `{"Old":"admin","New":"` + newPassword + `"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/password", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer test-token")
@@ -184,7 +185,7 @@ func TestPasswordChangeFlow(t *testing.T) {
 		t.Fatalf("want 200 got %d", w.Code)
 	}
 
-	login := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"Password":"newpass"}`))
+	login := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"Password":"`+newPassword+`"}`))
 	login.Header.Set("Content-Type", "application/json")
 	lw := httptest.NewRecorder()
 	r.ServeHTTP(lw, login)
