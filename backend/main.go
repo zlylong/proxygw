@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -574,6 +575,62 @@ func applyXrayConfig() error {
 	return exec.Command("systemctl", "restart", "xray").Run()
 }
 
+
+func getPrimarySubnet(ipStr string) string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, i := range ifaces {
+		addrs, err := i.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			if ipnet, ok := a.(*net.IPNet); ok {
+				if ipnet.IP.String() == ipStr {
+					network := ipnet.IP.Mask(ipnet.Mask)
+					maskSize, _ := ipnet.Mask.Size()
+					return fmt.Sprintf("%s/%d", network.String(), maskSize)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func syncFRRConfig() {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return
+	}
+	ip := conn.LocalAddr().(*net.UDPAddr).IP.String()
+	conn.Close()
+
+	subnet := getPrimarySubnet(ip)
+	if subnet == "" {
+		return
+	}
+
+	b, err := os.ReadFile("/etc/frr/frr.conf")
+	if err != nil {
+		return
+	}
+	content := string(b)
+
+	reRouter := regexp.MustCompile(`(?m)^\s*ospf router-id\s+\S+`)
+	reNetwork := regexp.MustCompile(`(?m)^\s*network\s+\S+\s+area\s+0`)
+
+	newContent := reRouter.ReplaceAllString(content, " ospf router-id "+ip)
+	newContent = reNetwork.ReplaceAllString(newContent, " network "+subnet+" area 0")
+
+	if newContent != content {
+		log.Printf("[OSPF] Auto-updating FRR config: router-id=%s, network=%s", ip, subnet)
+		os.WriteFile("/etc/frr/frr.conf", []byte(newContent), 0644)
+		exec.Command("systemctl", "restart", "frr").Run()
+	}
+}
+
 func main() {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err == nil {
@@ -582,6 +639,7 @@ func main() {
 		sessionToken = fmt.Sprintf("proxygw-%d", time.Now().UnixNano())
 	}
 
+	syncFRRConfig()
 	initDB()
 	go ospfController()
 	go watchDnsLogs()
