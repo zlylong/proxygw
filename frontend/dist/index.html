@@ -57,7 +57,46 @@
                             附加参数 / 高级配置 (JSON)
                             <span v-if="editingNode.type === 'Custom'" class="text-red-500 text-xs ml-2">Custom模式下，必须提供完整的 outbound 协议 JSON。</span>
                         </label>
-                        <textarea v-model="editingNode.params" rows="6" class="w-full border rounded p-2 text-sm font-mono focus:outline-blue-500" placeholder='{"streamSettings": {"network": "ws"}}'></textarea>
+                                                <textarea v-if="editingNode.type !== 'Vless'" v-model="editingNode.params" rows="6" class="w-full border rounded p-2 text-sm font-mono focus:outline-blue-500" placeholder='{"streamSettings": {"network": "ws"}}'></textarea>
+                        <div v-else class="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded border">
+                            <div class="col-span-2 text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Vless / Reality 高级配置</div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">传输协议 (network)</label>
+                                <select v-model="vlessParams.type" class="w-full border rounded p-1.5 text-sm focus:outline-blue-500">
+                                    <option value="tcp">TCP</option>
+                                    <option value="ws">WebSocket</option>
+                                    <option value="grpc">gRPC</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">底层安全 (security)</label>
+                                <select v-model="vlessParams.security" class="w-full border rounded p-1.5 text-sm focus:outline-blue-500">
+                                    <option value="none">None</option>
+                                    <option value="tls">TLS</option>
+                                    <option value="reality">Reality</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">SNI (ServerName)</label>
+                                <input type="text" v-model="vlessParams.sni" class="w-full border rounded p-1.5 text-sm focus:outline-blue-500" placeholder="如: www.apple.com">
+                            </div>
+                            <div v-if="vlessParams.security === 'reality'">
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Public Key (pbk)</label>
+                                <input type="text" v-model="vlessParams.pbk" class="w-full border rounded p-1.5 text-sm focus:outline-blue-500">
+                            </div>
+                            <div v-if="vlessParams.security === 'reality'">
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Fingerprint (fp)</label>
+                                <input type="text" v-model="vlessParams.fp" class="w-full border rounded p-1.5 text-sm focus:outline-blue-500" placeholder="chrome">
+                            </div>
+                            <div v-if="vlessParams.security === 'reality'">
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Short ID (sid)</label>
+                                <input type="text" v-model="vlessParams.sid" class="w-full border rounded p-1.5 text-sm focus:outline-blue-500">
+                            </div>
+                            <div class="col-span-2 mt-2">
+                                <label class="block text-xs font-medium text-gray-700 mb-1">流控 (flow) - XTLS</label>
+                                <input type="text" v-model="vlessParams.flow" class="w-full border rounded p-1.5 text-sm focus:outline-blue-500" placeholder="xtls-rprx-vision">
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="flex justify-end space-x-2 mt-6">
@@ -452,11 +491,14 @@
             setup() {
                                 const showNodeModal = ref(false);
                 const editingNode = ref({ id: null, name: '', type: 'Vmess', address: '', port: 443, uuid: '', params: '{}' });
+                const vlessParams = ref({ type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '' });
+                const isSubmitting = ref({ apply: false, update: false, node: false, login: false });
                 const isSubmitting = ref({ apply: false, update: false, node: false, login: false });
                 const isLoading = ref({ apply: false, save: false });
 
                 const openAddNode = () => {
                     editingNode.value = { id: null, name: 'New Node', type: 'Vmess', address: '1.2.3.4', port: 443, uuid: '', params: '{}' };
+                    vlessParams.value = { type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '' };
                     showNodeModal.value = true;
                 };
 
@@ -465,6 +507,12 @@
                     if (!editingNode.value.params) editingNode.value.params = '{}';
                     if (typeof editingNode.value.params === 'object') {
                         editingNode.value.params = JSON.stringify(editingNode.value.params, null, 2);
+                    }
+                    if (node.type === 'Vless') {
+                        try {
+                            const p = JSON.parse(editingNode.value.params);
+                            vlessParams.value = { type: p.type || 'tcp', security: p.security || 'none', sni: p.sni || '', pbk: p.pbk || '', fp: p.fp || 'chrome', sid: p.sid || '', flow: p.flow || '' };
+                        } catch(e) {}
                     }
                     showNodeModal.value = true;
                 };
@@ -637,18 +685,36 @@ const showRollbackModal = ref(false);
                     return res;
                 };
 
-                let ws = null;
-                watch(activeTab, (newTab) => {
-                    if(ws) { ws.close(); ws = null; }
-                    loadData();
-                    if(newTab === 'dns') {
-                        dnsLogs.value = [];
+                                let ws = null;
+                let wsReconnectTimer = null;
+
+                const connectWs = (tab) => {
+                    if (ws) { ws.close(); ws = null; }
+                    clearTimeout(wsReconnectTimer);
+
+                    if (tab === 'dns') {
                         ws = new WebSocket(`ws://${window.location.host}/api/dns/logs/ws`);
                         ws.onmessage = (e) => {
                             dnsLogs.value.push(e.data);
-                            if(dnsLogs.value.length > 100) dnsLogs.value.shift();
+                            if (dnsLogs.value.length > 100) dnsLogs.value.shift();
                         };
                     }
+
+                    if (ws) {
+                        ws.onclose = () => {
+                            if (activeTab.value === tab) {
+                                wsReconnectTimer = setTimeout(() => connectWs(tab), 3000);
+                            }
+                        };
+                    }
+                };
+
+                watch(activeTab, (newTab) => {
+                    loadData();
+                    if(newTab === 'dns') {
+                        dnsLogs.value = [];
+                    }
+                    connectWs(newTab);
                 });
 
                 const tabs = [
@@ -769,6 +835,7 @@ Mode B: 旁路由发布 (OSPF)`)) {
                 onMounted(() => { loadData(true); setInterval(() => loadData(false), 5000); });
 
                 return {
+                    isSubmitting, vlessParams,
                     isSubmitting, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback };
             }
         }).mount('#app');
