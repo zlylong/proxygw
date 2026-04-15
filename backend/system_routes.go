@@ -32,9 +32,9 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 		}
 
 		geoVer := "Unknown"
-		if data, err := os.ReadFile("/usr/local/bin/geodata.ver"); err == nil && len(data) > 0 {
+		if data, err := os.ReadFile("/root/proxygw/core/mosdns/geodata.ver"); err == nil && len(data) > 0 {
 			geoVer = strings.TrimSpace(string(data))
-		} else if info, err := os.Stat("/usr/local/bin/geoip.dat"); err == nil {
+		} else if info, err := os.Stat("/root/proxygw/core/mosdns/geoip.dat"); err == nil {
 			geoVer = info.ModTime().Format("2006-01-02")
 		}
 

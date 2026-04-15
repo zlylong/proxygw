@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	_ "github.com/mattn/go-sqlite3"
@@ -659,8 +658,6 @@ func main() {
 	go cronUpdater()
 
 	r := gin.Default()
-	r.Use(gzip.Gzip(gzip.DefaultCompression))
-	r.Use(gzip.Gzip(gzip.DefaultCompression))
 	registerAPIRoutes(r)
 
 	r.Static("/ui", "../frontend/dist")
