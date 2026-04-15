@@ -1,0 +1,37 @@
+log:
+  level: info
+  file: "/root/proxygw/core/mosdns/mosdns.log"
+plugins:
+  - tag: proxy_domain
+    type: domain_set
+    args:
+      files:
+        - "/root/proxygw/core/mosdns/proxy_domains.txt"
+  - tag: geosite_cn
+    type: domain_set
+    args:
+      files:
+        - "/root/proxygw/core/mosdns/geosite_cn.txt"
+  - tag: lazy_cache
+    type: cache
+    args: { size: 10240, lazy_cache_ttl: 86400 }
+  - tag: forward_local
+    type: forward
+    args: { upstreams: [{ addr: "223.5.5.5" }, { addr: "119.29.29.29" }] }
+  - tag: forward_remote
+    type: forward
+    args: { upstreams: [{ addr: "1.1.1.1", socks5: "127.0.0.1:10808" }, { addr: "8.8.8.8", socks5: "127.0.0.1:10808" }] }
+  - tag: main_sequence
+    type: sequence
+    args:
+      - exec: $lazy_cache
+      - matches: [ qname $proxy_domain ]
+        exec: $forward_remote
+      - matches: [ qname $geosite_cn ]
+        exec: $forward_local
+      - exec: $forward_remote
+  - tag: udp_server
+    type: udp_server
+    args:
+      entry: main_sequence
+      listen: 0.0.0.0:53
