@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -575,7 +574,6 @@ func applyXrayConfig() error {
 	return exec.Command("systemctl", "restart", "xray").Run()
 }
 
-
 func getPrimarySubnet(ipStr string) string {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -612,21 +610,24 @@ func syncFRRConfig() {
 		return
 	}
 
-	b, err := os.ReadFile("/etc/frr/frr.conf")
-	if err != nil {
-		return
-	}
+	newContent := fmt.Sprintf(`! FRR OSPF Config (Generated)
+router ospf
+ ospf router-id %s
+ redistribute static route-map OSPF-EXPORT
+ network %s area 0
+!
+route-map OSPF-EXPORT permit 10
+ match tag 100
+!`, ip, subnet)
+
+	b, _ := os.ReadFile("/etc/frr/frr.conf")
 	content := string(b)
-
-	reRouter := regexp.MustCompile(`(?m)^\s*ospf router-id\s+\S+`)
-	reNetwork := regexp.MustCompile(`(?m)^\s*network\s+\S+\s+area\s+0`)
-
-	newContent := reRouter.ReplaceAllString(content, " ospf router-id "+ip)
-	newContent = reNetwork.ReplaceAllString(newContent, " network "+subnet+" area 0")
 
 	if newContent != content {
 		log.Printf("[OSPF] Auto-updating FRR config: router-id=%s, network=%s", ip, subnet)
+		os.WriteFile("/root/proxygw/core/frr/frr.conf", []byte(newContent), 0644)
 		os.WriteFile("/etc/frr/frr.conf", []byte(newContent), 0644)
+		exec.Command("sed", "-i", "s/ospfd=no/ospfd=yes/", "/etc/frr/daemons").Run()
 		exec.Command("systemctl", "restart", "frr").Run()
 	}
 }

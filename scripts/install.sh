@@ -32,6 +32,7 @@ mkdir -p "$REPO_DIR/config"
 mkdir -p "$REPO_DIR/core/mosdns"
 mkdir -p "$REPO_DIR/core/xray"
 mkdir -p "$REPO_DIR/core/nftables"
+mkdir -p "$REPO_DIR/core/frr"
 mkdir -p "$REPO_DIR/systemd"
 
 echo "[4/6] Building backend..."
