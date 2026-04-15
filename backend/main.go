@@ -439,6 +439,63 @@ func applyXrayConfig() error {
 				},
 				"streamSettings": streamSettings,
 			}
+		} else if ntypeLow == "trojan" {
+			var p map[string]string
+			json.Unmarshal([]byte(paramsStr), &p)
+
+			streamSettings := map[string]interface{}{
+				"network": p["type"],
+			}
+			if streamSettings["network"] == "" {
+				streamSettings["network"] = "tcp"
+			}
+
+			if p["security"] != "" {
+				streamSettings["security"] = p["security"]
+			}
+
+			if p["security"] == "reality" {
+				streamSettings["realitySettings"] = map[string]interface{}{
+					"fingerprint": p["fp"],
+					"serverName":  p["sni"],
+					"publicKey":   p["pbk"],
+					"shortId":     p["sid"],
+					"spiderX":     "/",
+				}
+			} else if p["security"] == "tls" {
+				streamSettings["tlsSettings"] = map[string]interface{}{
+					"serverName": p["sni"],
+				}
+			}
+
+			outbound = map[string]interface{}{
+				"protocol": "trojan", "tag": fmt.Sprintf("proxy-%d", id),
+				"settings": map[string]interface{}{
+					"servers": []map[string]interface{}{{
+						"address": address, "port": port,
+						"password": uuid,
+					}},
+				},
+				"streamSettings": streamSettings,
+			}
+		} else if ntypeLow == "shadowsocks" || ntypeLow == "ss" {
+			var p map[string]string
+			json.Unmarshal([]byte(paramsStr), &p)
+			method := p["method"]
+			if method == "" {
+				method = "aes-256-gcm"
+			}
+
+			outbound = map[string]interface{}{
+				"protocol": "shadowsocks", "tag": fmt.Sprintf("proxy-%d", id),
+				"settings": map[string]interface{}{
+					"servers": []map[string]interface{}{{
+						"address": address, "port": port,
+						"password": uuid,
+						"method": method,
+					}},
+				},
+			}
 		}
 
 		if outbound != nil {

@@ -24,7 +24,12 @@
                 <!-- Node Edit Modal -->
         <div v-if="showNodeModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div class="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                <h3 class="text-lg font-bold mb-4">{{ editingNode.id ? '编辑节点' : '添加节点' }}</h3>
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-bold">{{ editingNode.id ? '编辑节点' : '添加节点' }}</h3>
+                    <button v-if="!editingNode.id" @click="importFromLink" class="text-sm bg-purple-100 text-purple-700 px-3 py-1.5 rounded hover:bg-purple-200 transition">
+                        <i class="fa-solid fa-link mr-1"></i>从分享链接解析
+                    </button>
+                </div>
                 <div class="space-y-4">
                     <div class="grid grid-cols-2 gap-4">
                         <div>
@@ -36,6 +41,8 @@
                             <select v-model="editingNode.type" class="w-full border rounded p-2 text-sm focus:outline-blue-500">
                                 <option value="Vmess">Vmess</option>
                                 <option value="Vless">Vless</option>
+                                <option value="Trojan">Trojan</option>
+                                <option value="Shadowsocks">Shadowsocks</option>
                                 <option value="Custom">Custom (任意协议)</option>
                             </select>
                         </div>
@@ -48,6 +55,15 @@
                             <input type="number" v-model="editingNode.port" class="w-full border rounded p-2 text-sm focus:outline-blue-500">
                         </div>
                     </div>
+                                            <div v-else-if="editingNode.type === 'Shadowsocks'" class="bg-gray-50 p-4 rounded border">
+                            <label class="block text-xs font-medium text-gray-700 mb-1">加密方式 (method)</label>
+                            <select v-model="vlessParams.method" class="w-full border rounded p-1.5 text-sm focus:outline-blue-500">
+                                <option value="aes-128-gcm">aes-128-gcm</option>
+                                <option value="aes-256-gcm">aes-256-gcm</option>
+                                <option value="chacha20-poly1305">chacha20-poly1305</option>
+                                <option value="2022-blake3-aes-128-gcm">2022-blake3-aes-128-gcm</option>
+                            </select>
+                        </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">UUID / 密码</label>
                         <input type="text" v-model="editingNode.uuid" class="w-full border rounded p-2 text-sm focus:outline-blue-500">
@@ -57,9 +73,9 @@
                             附加参数 / 高级配置 (JSON)
                             <span v-if="editingNode.type === 'Custom'" class="text-red-500 text-xs ml-2">Custom模式下，必须提供完整的 outbound 协议 JSON。</span>
                         </label>
-                                                <textarea v-if="editingNode.type !== 'Vless'" v-model="editingNode.params" rows="6" class="w-full border rounded p-2 text-sm font-mono focus:outline-blue-500" placeholder='{"streamSettings": {"network": "ws"}}'></textarea>
-                        <div v-else class="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded border">
-                            <div class="col-span-2 text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Vless / Reality 高级配置</div>
+                                                <textarea v-if="!['Vless', 'Trojan', 'Shadowsocks'].includes(editingNode.type)" v-model="editingNode.params" rows="6" class="w-full border rounded p-2 text-sm font-mono focus:outline-blue-500" placeholder='{"streamSettings": {"network": "ws"}}'></textarea>
+                        <div v-else-if="['Vless', 'Trojan'].includes(editingNode.type)" class="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded border">
+                            <div class="col-span-2 text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Vless / Trojan / Reality 高级配置</div>
                             <div>
                                 <label class="block text-xs font-medium text-gray-700 mb-1">传输协议 (network)</label>
                                 <select v-model="vlessParams.type" class="w-full border rounded p-1.5 text-sm focus:outline-blue-500">
@@ -491,15 +507,91 @@
             setup() {
                                 const showNodeModal = ref(false);
                 const editingNode = ref({ id: null, name: '', type: 'Vmess', address: '', port: 443, uuid: '', params: '{}' });
-                const vlessParams = ref({ type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '' });
+                const vlessParams = ref({ type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '', method: 'aes-256-gcm' });
                 const isSubmitting = ref({ apply: false, update: false, node: false, login: false });
                 const isSubmitting = ref({ apply: false, update: false, node: false, login: false });
                 const isLoading = ref({ apply: false, save: false });
 
                 const openAddNode = () => {
                     editingNode.value = { id: null, name: 'New Node', type: 'Vmess', address: '1.2.3.4', port: 443, uuid: '', params: '{}' };
-                    vlessParams.value = { type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '' };
+                    vlessParams.value = { type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '', method: 'aes-256-gcm' };
                     showNodeModal.value = true;
+                };
+
+                                const importFromLink = async () => {
+                    let link = prompt("请粘贴 vmess://, vless://, trojan:// 或 ss:// 分享链接：");
+                    if (!link) return;
+                    link = link.trim();
+                    try {
+                        if (link.startsWith('vmess://')) {
+                            let b64 = link.replace('vmess://', '');
+                            b64 = b64.replace(/-/g, '+').replace(/_/g, '/');
+                            while (b64.length % 4) b64 += '=';
+                            let decoded = decodeURIComponent(escape(atob(b64)));
+                            let parsed = JSON.parse(decoded);
+                            editingNode.value.type = 'Vmess';
+                            editingNode.value.name = parsed.ps || 'VMess Node';
+                            editingNode.value.address = parsed.add || '';
+                            editingNode.value.port = parseInt(parsed.port) || 443;
+                            editingNode.value.uuid = parsed.id || '';
+                        } else if (link.startsWith('vless://') || link.startsWith('trojan://')) {
+                            editingNode.value.type = link.startsWith('vless://') ? 'Vless' : 'Trojan';
+                            let urlObj = new URL(link);
+                            editingNode.value.uuid = urlObj.username || urlObj.password || '';
+                            editingNode.value.address = urlObj.hostname || '';
+                            editingNode.value.port = parseInt(urlObj.port) || 443;
+                            editingNode.value.name = decodeURIComponent(urlObj.hash.replace('#', '')) || (editingNode.value.type + ' Node');
+                            
+                            let params = new URLSearchParams(urlObj.search);
+                            vlessParams.value.type = params.get('type') || 'tcp';
+                            vlessParams.value.security = params.get('security') || 'none';
+                            vlessParams.value.sni = params.get('sni') || '';
+                            vlessParams.value.pbk = params.get('pbk') || '';
+                            vlessParams.value.fp = params.get('fp') || 'chrome';
+                            vlessParams.value.sid = params.get('sid') || '';
+                            vlessParams.value.flow = params.get('flow') || '';
+                        } else if (link.startsWith('ss://')) {
+                            editingNode.value.type = 'Shadowsocks';
+                            let urlObj = new URL(link);
+                            editingNode.value.name = decodeURIComponent(urlObj.hash.replace('#', '')) || 'SS Node';
+                            
+                            let auth = urlObj.username || '';
+                            if (!auth && urlObj.hostname && !urlObj.pathname) {
+                                // Sometimes ss:// is just base64 encoded entirely
+                                let b64 = link.replace('ss://', '').split('#')[0];
+                                b64 = b64.replace(/-/g, '+').replace(/_/g, '/');
+                                while (b64.length % 4) b64 += '=';
+                                let decoded = atob(b64);
+                                let parts = decoded.split('@');
+                                if (parts.length === 2) {
+                                    let methodPass = parts[0].split(':');
+                                    let hostPort = parts[1].split(':');
+                                    vlessParams.value.method = methodPass[0];
+                                    editingNode.value.uuid = methodPass[1] || '';
+                                    editingNode.value.address = hostPort[0];
+                                    editingNode.value.port = parseInt(hostPort[1]) || 443;
+                                    return;
+                                }
+                            }
+                            
+                            let b64 = auth;
+                            if (b64) {
+                                b64 = decodeURIComponent(b64);
+                                b64 = b64.replace(/-/g, '+').replace(/_/g, '/');
+                                while (b64.length % 4) b64 += '=';
+                                let decoded = atob(b64);
+                                let methodPass = decoded.split(':');
+                                vlessParams.value.method = methodPass[0] || 'aes-256-gcm';
+                                editingNode.value.uuid = methodPass[1] || '';
+                            }
+                            editingNode.value.address = urlObj.hostname || '';
+                            editingNode.value.port = parseInt(urlObj.port) || 443;
+                        } else {
+                            showToast("不支持的链接格式", "error");
+                        }
+                    } catch (e) {
+                        showToast("链接解析失败: " + e.message, "error");
+                    }
                 };
 
                 const editNode = (node) => {
@@ -508,10 +600,10 @@
                     if (typeof editingNode.value.params === 'object') {
                         editingNode.value.params = JSON.stringify(editingNode.value.params, null, 2);
                     }
-                    if (node.type === 'Vless') {
+                    if (['Vless', 'Trojan', 'Shadowsocks'].includes(node.type)) {
                         try {
                             const p = JSON.parse(editingNode.value.params);
-                            vlessParams.value = { type: p.type || 'tcp', security: p.security || 'none', sni: p.sni || '', pbk: p.pbk || '', fp: p.fp || 'chrome', sid: p.sid || '', flow: p.flow || '' };
+                            vlessParams.value = { type: p.type || 'tcp', security: p.security || 'none', sni: p.sni || '', pbk: p.pbk || '', fp: p.fp || 'chrome', sid: p.sid || '', flow: p.flow || '', method: p.method || 'aes-256-gcm' };
                         } catch(e) {}
                     }
                     showNodeModal.value = true;
@@ -835,6 +927,7 @@ Mode B: 旁路由发布 (OSPF)`)) {
                 onMounted(() => { loadData(true); setInterval(() => loadData(false), 5000); });
 
                 return {
+                    importFromLink,
                     isSubmitting, vlessParams,
                     isSubmitting, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback };
             }
