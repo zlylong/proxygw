@@ -18,7 +18,7 @@ jobs:
       - name: Download Latest Xray-Core
         run: |
           mkdir -p core/xray
-          LATEST_XRAY=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep "browser_download_url.*Xray-linux-64.zip" | cut -d '"' -f 4)
+          LATEST_XRAY=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r '.assets[] | select(.name == "Xray-linux-64.zip") | .browser_download_url')
           echo "Downloading Xray from $LATEST_XRAY"
           wget -qO xray.zip "$LATEST_XRAY"
           unzip -o xray.zip xray -d core/xray/
@@ -43,7 +43,7 @@ jobs:
       - name: Download Mosdns binary
         run: |
           mkdir -p core/mosdns
-          LATEST_MOSDNS=$(curl -s https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | grep "browser_download_url.*linux-amd64.zip" | cut -d '"' -f 4)
+          LATEST_MOSDNS=$(curl -s https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | jq -r '.assets[] | select(.name | endswith("linux-amd64.zip")) | .browser_download_url')
           echo "Downloading Mosdns from $LATEST_MOSDNS"
           wget -qO mosdns.zip "$LATEST_MOSDNS"
           unzip -o mosdns.zip mosdns -d core/mosdns/
@@ -52,7 +52,7 @@ jobs:
 
       - name: Generate Rules Ver
         run: |
-          curl -s https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest | grep '"tag_name":' | cut -d '"' -f 4 > core/mosdns/geodata.ver
+          curl -s https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest | jq -r '.tag_name' > core/mosdns/geodata.ver
 
       - name: Commit and Push Changes
         run: |
