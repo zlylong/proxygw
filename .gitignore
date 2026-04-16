@@ -6,3 +6,12 @@
 /.backup/
 /core/xray/config.json
 /backend/proxygw-backend
+
+# Databases
+/config/*.db
+/config/*.db-shm
+/config/*.db-wal
+backend/proxygw.db
+backend/proxygw.db-shm
+backend/proxygw.db-wal
+
