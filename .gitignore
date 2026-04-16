@@ -1,7 +1,6 @@
 /config/*.db
 /config/bootstrap_password.txt
 /.backup/
-/backend/proxygw-backend
 
 # Databases
 /config/*.db
@@ -21,13 +20,3 @@ backend/proxygw.db-wal
 /core/xray/config.json
 /core/mosdns/config.yaml
 /core/frr/frr.conf
-
-# Core downloaded Geodata
-/core/**/*.dat
-/core/**/*.txt
-/core/mosdns/geodata.ver
-
-# Core binaries
-/core/mosdns/mosdns
-/core/xray/xray
-/core/xray/xray.bak
