@@ -710,14 +710,18 @@ const showRollbackModal = ref(false);
 
                 const token = ref(localStorage.getItem('token') || '');
                 const password = ref('');
-                const login = async () => { console.log("login called");
+                const login = async () => {
                     if (isSubmitting.value.login) return;
-                    isSubmitting.value.login = true; alert("Login triggered!");
+                    if (!password.value || !password.value.trim()) {
+                        showToast("请输入密码", "error");
+                        return;
+                    }
+                    isSubmitting.value.login = true;
                     try {
                         const res = await fetch('/api/login', { 
                             method: 'POST', 
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ password: password.value }) 
+                            body: JSON.stringify({ password: password.value.trim() }) 
                         });
                         if(res.ok) {
                             const data = await res.json();
