@@ -3,38 +3,46 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 func readCPUUsage() float64 {
-	f, err := os.Open("/proc/loadavg")
-	if err != nil {
-		return 0
+	getStat := func() (idle, total float64) {
+		b, err := os.ReadFile("/proc/stat")
+		if err != nil {
+			return 0, 0
+		}
+		lines := strings.Split(string(b), "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "cpu ") {
+				fields := strings.Fields(line)
+				for i, f := range fields[1:] {
+					val, _ := strconv.ParseFloat(f, 64)
+					total += val
+					if i == 3 {
+						idle = val
+					}
+				}
+				return
+			}
+		}
+		return
 	}
-	defer f.Close()
-	b, err := io.ReadAll(f)
-	if err != nil {
-		return 0
+	idle1, total1 := getStat()
+	time.Sleep(200 * time.Millisecond)
+	idle2, total2 := getStat()
+
+	if total2-total1 > 0 {
+		return 100.0 * (1.0 - (idle2-idle1)/(total2-total1))
 	}
-	fields := strings.Fields(string(b))
-	if len(fields) == 0 {
-		return 0
-	}
-	load, err := strconv.ParseFloat(fields[0], 64)
-	if err != nil {
-		return 0
-	}
-	if load < 0 {
-		return 0
-	}
-	return load * 100
+	return 0
 }
 
 func readMemoryUsage() float64 {
