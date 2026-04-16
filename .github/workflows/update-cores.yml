@@ -1,0 +1,70 @@
+name: Daily Core & Rules Update
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # Run at 2:00 AM UTC daily
+  workflow_dispatch:      # Allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  update-cores:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download Latest Xray-Core
+        run: |
+          mkdir -p core/xray
+          LATEST_XRAY=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep "browser_download_url.*Xray-linux-64.zip" | cut -d '"' -f 4)
+          echo "Downloading Xray from $LATEST_XRAY"
+          wget -qO xray.zip "$LATEST_XRAY"
+          unzip -o xray.zip xray -d core/xray/
+          rm xray.zip
+          chmod +x core/xray/xray
+
+      - name: Download GeoData (.dat files)
+        run: |
+          mkdir -p core/mosdns core/xray
+          wget -qO core/mosdns/geoip.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+          wget -qO core/mosdns/geosite.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
+          cp core/mosdns/geoip.dat core/xray/geoip.dat
+          cp core/mosdns/geosite.dat core/xray/geosite.dat
+
+      - name: Fetch Text Rules (.txt files for Mosdns)
+        run: |
+          echo "Fetching plain text rules for Mosdns v5..."
+          wget -qO core/mosdns/geoip_cn.txt "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/cn.txt"
+          wget -qO core/mosdns/geosite_cn.txt "https://raw.githubusercontent.com/Loyalsoldier/domain-list-custom/release/cn.txt"
+          wget -qO core/mosdns/proxy_domains.txt "https://raw.githubusercontent.com/Loyalsoldier/domain-list-custom/release/geolocation-\\!cn.txt"
+
+      - name: Download Mosdns binary
+        run: |
+          mkdir -p core/mosdns
+          LATEST_MOSDNS=$(curl -s https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | grep "browser_download_url.*linux-amd64.zip" | cut -d '"' -f 4)
+          echo "Downloading Mosdns from $LATEST_MOSDNS"
+          wget -qO mosdns.zip "$LATEST_MOSDNS"
+          unzip -o mosdns.zip mosdns -d core/mosdns/
+          rm mosdns.zip
+          chmod +x core/mosdns/mosdns
+
+      - name: Generate Rules Ver
+        run: |
+          curl -s https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest | grep '"tag_name":' | cut -d '"' -f 4 > core/mosdns/geodata.ver
+
+      - name: Commit and Push Changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add core/xray/xray core/mosdns/mosdns
+          git add core/mosdns/*.dat core/xray/*.dat
+          git add core/mosdns/*.txt core/mosdns/geodata.ver
+          
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: auto-update Xray, Mosdns and GeoData"
+            git push
+          fi
