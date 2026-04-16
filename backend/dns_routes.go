@@ -1,17 +1,12 @@
 package main
 
 import (
-	"bufio"
 	"database/sql"
 	"fmt"
-	"log"
 	"net/http"
-	"os/exec"
 	"strings"
-	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 )
 
 var dnsLogWSConnections int32
@@ -78,55 +73,5 @@ func registerDNSRoutes(api *gin.RouterGroup) {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
-	api.GET("/dns/logs/ws", func(c *gin.Context) {
-		const maxDNSLogWSConnections = 16
-		if active := atomic.AddInt32(&dnsLogWSConnections, 1); active > maxDNSLogWSConnections {
-			atomic.AddInt32(&dnsLogWSConnections, -1)
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many log streams"})
-			return
-		}
-		defer atomic.AddInt32(&dnsLogWSConnections, -1)
-		ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-		if err != nil {
-			return
-		}
-		defer ws.Close()
-		cmd := exec.Command("tail", "-f", "-n", "20", getPath("core", "mosdns", "mosdns.log"))
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			_ = ws.WriteMessage(websocket.TextMessage, []byte("failed to read logs"))
-			return
-		}
-		if err := cmd.Start(); err != nil {
-			_ = ws.WriteMessage(websocket.TextMessage, []byte("failed to start log stream"))
-			return
-		}
-		defer func() {
-			if cmd.Process != nil {
-				_ = cmd.Process.Kill()
-			}
-			if err := cmd.Wait(); err != nil {
-				log.Printf("[WARN] dns log tail process exited: %v", err)
-			}
-		}()
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			if err := ws.WriteMessage(websocket.TextMessage, scanner.Bytes()); err != nil {
-				break
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			log.Printf("[WARN] dns log scanner error: %v", err)
-		}
-	})
 
-	api.GET("/dns/logs", func(c *gin.Context) {
-		out, err := exec.Command("tail", "-n", "10", getPath("core", "mosdns", "mosdns.log")).Output()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "read logs failed"})
-			return
-		}
-		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-		c.JSON(http.StatusOK, lines)
-	})
 }

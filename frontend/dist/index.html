@@ -309,7 +309,7 @@
 
                     <!-- DNS -->
                     <div v-else-if="activeTab === 'dns'" key="dns" class="space-y-6">
-                        <div class="grid grid-cols-2 gap-6">
+                        <div class="grid grid-cols-1 gap-6 max-w-3xl mx-auto">
                             <div class="bg-white p-6 rounded-lg shadow">
                                 <h3 class="text-lg font-medium border-b pb-2 mb-4">Mosdns 基础配置</h3>
                                 <div class="space-y-4">
@@ -336,12 +336,7 @@
                                     <button @click="saveDns" class="mt-4 bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 w-full">保存并应用</button>
                                 </div>
                             </div>
-                            <div class="bg-white p-6 rounded-lg shadow flex flex-col">
-                                <h3 class="text-lg font-medium border-b pb-2 mb-4">实时解析流</h3>
-                                <div class="terminal flex-1 text-xs">
-                                    <div v-for="(log, i) in dnsLogs" :key="i" class="break-all">{{ log }}</div>
-                                </div>
-                            </div>
+                            
                         </div>
                     </div>
 
