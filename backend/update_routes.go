@@ -115,7 +115,7 @@ func registerUpdateRoutes(api *gin.RouterGroup) {
 				return
 			}
 
-			if err := exec.Command("cp", "/usr/local/bin/xray", "/usr/local/bin/xray.bak").Run(); err != nil {
+			if err := exec.Command("cp", "/root/proxygw/core/xray/xray", "/root/proxygw/core/xray/xray.bak").Run(); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "backup failed"})
 				return
 			}
@@ -136,19 +136,19 @@ func registerUpdateRoutes(api *gin.RouterGroup) {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "unzip failed"})
 				return
 			}
-			if err := exec.Command("install", "-m", "755", filepath.Join(tmpDir, "xray"), "/usr/local/bin/xray").Run(); err != nil {
-				_ = exec.Command("cp", "/usr/local/bin/xray.bak", "/usr/local/bin/xray").Run()
+			if err := exec.Command("install", "-m", "755", filepath.Join(tmpDir, "xray"), "/root/proxygw/core/xray/xray").Run(); err != nil {
+				_ = exec.Command("cp", "/root/proxygw/core/xray/xray.bak", "/root/proxygw/core/xray/xray").Run()
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "install failed"})
 				return
 			}
 			if err := exec.Command("systemctl", "restart", "xray").Run(); err != nil {
-				_ = exec.Command("cp", "/usr/local/bin/xray.bak", "/usr/local/bin/xray").Run()
+				_ = exec.Command("cp", "/root/proxygw/core/xray/xray.bak", "/root/proxygw/core/xray/xray").Run()
 				_ = exec.Command("systemctl", "restart", "xray").Run()
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "restart failed, rolled back"})
 				return
 			}
 		case "rollback_xray":
-			if err := exec.Command("cp", "/usr/local/bin/xray.bak", "/usr/local/bin/xray").Run(); err != nil {
+			if err := exec.Command("cp", "/root/proxygw/core/xray/xray.bak", "/root/proxygw/core/xray/xray").Run(); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "rollback copy failed"})
 				return
 			}

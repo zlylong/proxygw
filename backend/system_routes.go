@@ -92,7 +92,7 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 		db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
 
 		xrayVer := "Unknown"
-		xrayVersionOut, err := exec.Command("xray", "version").Output()
+		xrayVersionOut, err := exec.Command("/root/proxygw/core/xray/xray", "version").Output()
 		if err == nil {
 			xrayVer = parseXrayVersionOutput(string(xrayVersionOut))
 		}
@@ -104,8 +104,8 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			geoVer = info.ModTime().Format("2006-01-02")
 		}
 
-		upStats, _ := exec.Command("xray", "api", "statsquery", "-server=127.0.0.1:10085", "-name=inbound>>>api_inbound>>>traffic>>>uplink").Output()
-		downStats, _ := exec.Command("xray", "api", "statsquery", "-server=127.0.0.1:10085", "-name=inbound>>>api_inbound>>>traffic>>>downlink").Output()
+		upStats, _ := exec.Command("/root/proxygw/core/xray/xray", "api", "statsquery", "-server=127.0.0.1:10085", "-name=inbound>>>api_inbound>>>traffic>>>uplink").Output()
+		downStats, _ := exec.Command("/root/proxygw/core/xray/xray", "api", "statsquery", "-server=127.0.0.1:10085", "-name=inbound>>>api_inbound>>>traffic>>>downlink").Output()
 		upStr := "0 MB"
 		downStr := "0 MB"
 		if strings.Contains(string(upStats), "value") {
