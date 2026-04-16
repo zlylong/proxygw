@@ -72,13 +72,14 @@
     "network": "ws"
   }
 }'></textarea>
-                    </div></div>
+                    </div>
                 </div>
                 <div class="flex justify-end space-x-2 mt-6">
                     <button @click="showNodeModal = false" class="px-4 py-2 border rounded hover:bg-gray-50 text-sm">取消</button>
                     <button @click="saveNode" :disabled="isLoading.save" :class="isLoading.save ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'" class="px-4 py-2 text-white rounded hover:bg-blue-700 text-sm">保存</button>
                 </div>
             </div>
+        </div>
 
 <!-- Rollback Modal -->
         <div v-if="showRollbackModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
