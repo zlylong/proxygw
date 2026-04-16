@@ -175,7 +175,7 @@ func getXrayHash(version string) (string, error) {
 	}
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
-		if strings.HasPrefix(line, "SHA256(") {
+		if strings.HasPrefix(line, "SHA256(") || strings.HasPrefix(line, "SHA2-256=") {
 			parts := strings.Split(line, "= ")
 			if len(parts) == 2 {
 				return strings.TrimSpace(parts[1]), nil

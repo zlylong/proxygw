@@ -900,7 +900,12 @@ Mode B: 旁路由发布 (OSPF)`)) {
                             if(res.ok) {
                                 showToast("操作成功完成！");
                             } else {
-                                showToast("更新失败，请检查网络", "error");
+                                try {
+                                    const data = await res.json();
+                                    showToast("更新失败: " + (data.error || "未知错误"), "error");
+                                } catch(e) {
+                                    showToast("更新失败，请检查网络", "error");
+                                }
                             }
                         } catch (e) {
                             showToast("请求出错", "error");
