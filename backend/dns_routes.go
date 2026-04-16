@@ -76,16 +76,16 @@ func registerDNSRoutes(api *gin.RouterGroup) {
 
 	api.GET("/dns/logs/ws", func(c *gin.Context) {
 		const maxDNSLogWSConnections = 16
-		if atomic.LoadInt32(&dnsLogWSConnections) >= maxDNSLogWSConnections {
+		if active := atomic.AddInt32(&dnsLogWSConnections, 1); active > maxDNSLogWSConnections {
+			atomic.AddInt32(&dnsLogWSConnections, -1)
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many log streams"})
 			return
 		}
+		defer atomic.AddInt32(&dnsLogWSConnections, -1)
 		ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			return
 		}
-		atomic.AddInt32(&dnsLogWSConnections, 1)
-		defer atomic.AddInt32(&dnsLogWSConnections, -1)
 		defer ws.Close()
 		cmd := exec.Command("tail", "-f", "-n", "20", "/root/proxygw/core/mosdns/mosdns.log")
 		stdout, err := cmd.StdoutPipe()
