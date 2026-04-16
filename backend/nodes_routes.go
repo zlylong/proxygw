@@ -41,7 +41,6 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db rows error"})
 			return
 		}
-		if err := rows.Err(); err != nil { c.JSON(500, gin.H{"error": "db rows error"}); return }
 		c.JSON(http.StatusOK, nodes)
 	})
 
@@ -67,20 +66,42 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 		if err := c.BindJSON(&req); err == nil {
 			if strings.HasPrefix(req.Url, "vmess://") {
 				b64 := strings.TrimPrefix(req.Url, "vmess://")
-				decoded, _ := base64.StdEncoding.DecodeString(b64)
+				decoded, err := base64.StdEncoding.DecodeString(b64)
+				if err != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid vmess base64 content"})
+					return
+				}
 				var v struct {
 					Ps, Add, Id string
 					Port        interface{}
 				}
-				json.Unmarshal(decoded, &v)
+				if err := json.Unmarshal(decoded, &v); err != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid vmess payload"})
+					return
+				}
+				if strings.TrimSpace(v.Add) == "" || strings.TrimSpace(v.Id) == "" {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid vmess endpoint"})
+					return
+				}
 				portInt := parsePortValue(v.Port)
-				
+				if portInt <= 0 || portInt > 65535 {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid vmess port"})
+					return
+				}
+
 				vmessSettings := map[string]interface{}{
-				    "vnext": []map[string]interface{}{{"users": []map[string]interface{}{{"id": v.Id, "alterId": 0}}}},
+					"vnext": []map[string]interface{}{{"users": []map[string]interface{}{{"id": v.Id, "alterId": 0}}}},
 				}
 				finalParamsVmess := map[string]interface{}{"settings": vmessSettings}
-				vmessParamsJson, _ := json.Marshal(finalParamsVmess)
-				db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vmess', ?, ?, '', ?, 1)", v.Ps, v.Add, portInt, string(vmessParamsJson))
+				vmessParamsJson, err := json.Marshal(finalParamsVmess)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Marshal vmess params failed"})
+					return
+				}
+				if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vmess', ?, ?, '', ?, 1)", v.Ps, v.Add, portInt, string(vmessParamsJson)); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+					return
+				}
 
 				scheduleApply()
 				c.JSON(http.StatusOK, gin.H{"success": true})
@@ -92,6 +113,10 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 					host := parsedUrl.Hostname()
 					portStr := parsedUrl.Port()
 					portInt, _ := strconv.Atoi(portStr)
+					if strings.TrimSpace(host) == "" || strings.TrimSpace(uuid) == "" || portInt <= 0 || portInt > 65535 {
+						c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid vless endpoint"})
+						return
+					}
 					alias, _ := url.QueryUnescape(parsedUrl.Fragment)
 					if alias == "" {
 						alias = host
@@ -109,7 +134,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 						"type":       query.Get("type"),
 						"headerType": query.Get("headerType"),
 					}
-					
+
 					// Convert immediately to Xray standard structure
 					ss := map[string]interface{}{"network": params["type"]}
 					if params["security"] != nil && params["security"] != "" {
@@ -123,19 +148,26 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 					} else if params["security"] == "tls" {
 						ss["tlsSettings"] = map[string]interface{}{"serverName": params["sni"]}
 					}
-					
-					settings := map[string]interface{}{
-					    "vnext": []map[string]interface{}{{"users": []map[string]interface{}{{"id": uuid, "encryption": "none"}}}},
-					}
-					
-					finalParams := map[string]interface{}{
-					    "settings": settings,
-					    "streamSettings": ss,
-					}
-					
-					paramsJson, _ := json.Marshal(finalParams)
 
-					db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vless', ?, ?, '', ?, 1)", alias, host, portInt, string(paramsJson))
+					settings := map[string]interface{}{
+						"vnext": []map[string]interface{}{{"users": []map[string]interface{}{{"id": uuid, "encryption": "none"}}}},
+					}
+
+					finalParams := map[string]interface{}{
+						"settings":       settings,
+						"streamSettings": ss,
+					}
+
+					paramsJson, err := json.Marshal(finalParams)
+					if err != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "Marshal vless params failed"})
+						return
+					}
+
+					if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vless', ?, ?, '', ?, 1)", alias, host, portInt, string(paramsJson)); err != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+						return
+					}
 					scheduleApply()
 					c.JSON(http.StatusOK, gin.H{"success": true})
 					return
@@ -180,9 +212,9 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 		}
 		if err := rows.Err(); err != nil {
 			log.Printf("[ERROR] ping nodes rows err: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db rows error"})
 			return
 		}
-		if err := rows.Err(); err != nil { log.Printf("[ERROR] ping nodes rows err: %v", err); return }
 		go func() {
 			wg.Wait()
 		}()
