@@ -18,15 +18,15 @@ import (
 
 func registerNodeRoutes(api *gin.RouterGroup) {
 	api.GET("/nodes", func(c *gin.Context) {
-		rows, _ := db.Query("SELECT id, name, grp, type, address, port, uuid, active, ping FROM nodes")
+		rows, _ := db.Query("SELECT id, name, grp, type, address, port, uuid, active, ping, COALESCE(params, '{}') FROM nodes")
 		defer rows.Close()
 		var nodes []map[string]interface{}
 		for rows.Next() {
 			var id, port, ping int
-			var name, grp, ntype, address, uuid string
+			var name, grp, ntype, address, uuid, params string
 			var active bool
-			rows.Scan(&id, &name, &grp, &ntype, &address, &port, &uuid, &active, &ping)
-			nodes = append(nodes, map[string]interface{}{"id": id, "name": name, "group": grp, "type": ntype, "address": address, "port": port, "uuid": uuid, "active": active, "ping": ping})
+			rows.Scan(&id, &name, &grp, &ntype, &address, &port, &uuid, &active, &ping, &params)
+			nodes = append(nodes, map[string]interface{}{"id": id, "name": name, "group": grp, "type": ntype, "address": address, "port": port, "uuid": uuid, "active": active, "ping": ping, "params": params})
 		}
 		if nodes == nil {
 			nodes = make([]map[string]interface{}, 0)
@@ -63,7 +63,14 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 				}
 				json.Unmarshal(decoded, &v)
 				portInt := parsePortValue(v.Port)
-				db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vmess', ?, ?, ?, '{}', 1)", v.Ps, v.Add, portInt, v.Id)
+				
+				vmessSettings := map[string]interface{}{
+				    "vnext": []map[string]interface{}{{"users": []map[string]interface{}{{"id": v.Id, "alterId": 0}}}},
+				}
+				finalParamsVmess := map[string]interface{}{"settings": vmessSettings}
+				vmessParamsJson, _ := json.Marshal(finalParamsVmess)
+				db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vmess', ?, ?, '', ?, 1)", v.Ps, v.Add, portInt, string(vmessParamsJson))
+
 				scheduleApply()
 				c.JSON(http.StatusOK, gin.H{"success": true})
 				return
@@ -80,7 +87,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 					}
 
 					query := parsedUrl.Query()
-					params := map[string]string{
+					params := map[string]interface{}{
 						"encryption": query.Get("encryption"),
 						"flow":       query.Get("flow"),
 						"security":   query.Get("security"),
@@ -91,9 +98,33 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 						"type":       query.Get("type"),
 						"headerType": query.Get("headerType"),
 					}
-					paramsJson, _ := json.Marshal(params)
+					
+					// Convert immediately to Xray standard structure
+					ss := map[string]interface{}{"network": params["type"]}
+					if params["security"] != nil && params["security"] != "" {
+						ss["security"] = params["security"]
+					}
+					if params["security"] == "reality" {
+						ss["realitySettings"] = map[string]interface{}{
+							"fingerprint": params["fp"], "serverName": params["sni"],
+							"publicKey": params["pbk"], "shortId": params["sid"], "spiderX": "/",
+						}
+					} else if params["security"] == "tls" {
+						ss["tlsSettings"] = map[string]interface{}{"serverName": params["sni"]}
+					}
+					
+					settings := map[string]interface{}{
+					    "vnext": []map[string]interface{}{{"users": []map[string]interface{}{{"id": uuid, "encryption": "none"}}}},
+					}
+					
+					finalParams := map[string]interface{}{
+					    "settings": settings,
+					    "streamSettings": ss,
+					}
+					
+					paramsJson, _ := json.Marshal(finalParams)
 
-					db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vless', ?, ?, ?, ?, 1)", alias, host, portInt, uuid, string(paramsJson))
+					db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vless', ?, ?, '', ?, 1)", alias, host, portInt, string(paramsJson))
 					scheduleApply()
 					c.JSON(http.StatusOK, gin.H{"success": true})
 					return

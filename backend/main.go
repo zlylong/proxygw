@@ -377,124 +377,79 @@ func applyXrayConfig() error {
 		var port, id int
 		rows.Scan(&id, &name, &ntype, &address, &port, &uuid, &paramsStr)
 
-		var outbound map[string]interface{}
 
 		ntypeLow := strings.ToLower(ntype)
 
-		if ntypeLow == "vmess" {
-			outbound = map[string]interface{}{
-				"protocol": "vmess", "tag": fmt.Sprintf("proxy-%d", id),
-				"settings": map[string]interface{}{
-					"vnext": []map[string]interface{}{{
-						"address": address, "port": port,
-						"users": []map[string]interface{}{{"id": uuid, "alterId": 0}},
-					}},
-				},
-			}
-		} else if ntypeLow == "vless" {
-			var p map[string]string
-			json.Unmarshal([]byte(paramsStr), &p)
+		var params map[string]interface{}
+		json.Unmarshal([]byte(paramsStr), &params)
+		if params == nil {
+			params = make(map[string]interface{})
+		}
 
-			user := map[string]interface{}{"id": uuid, "encryption": "none"}
-			if p["encryption"] != "" {
-				user["encryption"] = p["encryption"]
-			}
-			if p["flow"] != "" {
-				user["flow"] = p["flow"]
-			}
-
-			streamSettings := map[string]interface{}{
-				"network": p["type"],
-			}
-			if streamSettings["network"] == "" {
-				streamSettings["network"] = "tcp"
-			}
-
-			if p["security"] != "" {
-				streamSettings["security"] = p["security"]
-			}
-
-			if p["security"] == "reality" {
-				streamSettings["realitySettings"] = map[string]interface{}{
-					"fingerprint": p["fp"],
-					"serverName":  p["sni"],
-					"publicKey":   p["pbk"],
-					"shortId":     p["sid"],
-					"spiderX":     "/",
-				}
-			} else if p["security"] == "tls" {
-				streamSettings["tlsSettings"] = map[string]interface{}{
-					"serverName": p["sni"],
+		if uuid != "" {
+			if params["settings"] == nil {
+				if ntypeLow == "vmess" {
+					params["settings"] = map[string]interface{}{"vnext": []map[string]interface{}{{"users": []map[string]interface{}{{"id": uuid, "alterId": 0}}}}}
+				} else if ntypeLow == "vless" {
+					params["settings"] = map[string]interface{}{"vnext": []map[string]interface{}{{"users": []map[string]interface{}{{"id": uuid, "encryption": "none"}}}}}
+				} else if ntypeLow == "trojan" {
+					params["settings"] = map[string]interface{}{"servers": []map[string]interface{}{{"password": uuid}}}
+				} else if ntypeLow == "shadowsocks" || ntypeLow == "ss" {
+					params["settings"] = map[string]interface{}{"servers": []map[string]interface{}{{"password": uuid, "method": "aes-256-gcm"}}}
 				}
 			}
-
-			outbound = map[string]interface{}{
-				"protocol": "vless", "tag": fmt.Sprintf("proxy-%d", id),
-				"settings": map[string]interface{}{
-					"vnext": []map[string]interface{}{{
-						"address": address, "port": port,
-						"users": []interface{}{user},
-					}},
-				},
-				"streamSettings": streamSettings,
+			if ntypeLow == "vless" || ntypeLow == "trojan" {
+			    if params["type"] != nil && params["streamSettings"] == nil {
+			        ss := map[string]interface{}{"network": params["type"]}
+			        if params["security"] != nil {
+			            ss["security"] = params["security"]
+			        }
+			        if params["security"] == "reality" {
+			            ss["realitySettings"] = map[string]interface{}{
+			                "fingerprint": params["fp"], "serverName": params["sni"],
+			                "publicKey": params["pbk"], "shortId": params["sid"], "spiderX": "/",
+			            }
+			        } else if params["security"] == "tls" {
+			            ss["tlsSettings"] = map[string]interface{}{"serverName": params["sni"]}
+			        }
+			        params["streamSettings"] = ss
+			    }
 			}
-		} else if ntypeLow == "trojan" {
-			var p map[string]string
-			json.Unmarshal([]byte(paramsStr), &p)
+		}
 
-			streamSettings := map[string]interface{}{
-				"network": p["type"],
-			}
-			if streamSettings["network"] == "" {
-				streamSettings["network"] = "tcp"
-			}
+		outbound := params
+		outbound["protocol"] = ntypeLow
+		outbound["tag"] = fmt.Sprintf("proxy-%d", id)
 
-			if p["security"] != "" {
-				streamSettings["security"] = p["security"]
-			}
-
-			if p["security"] == "reality" {
-				streamSettings["realitySettings"] = map[string]interface{}{
-					"fingerprint": p["fp"],
-					"serverName":  p["sni"],
-					"publicKey":   p["pbk"],
-					"shortId":     p["sid"],
-					"spiderX":     "/",
+		if settings, ok := outbound["settings"].(map[string]interface{}); ok {
+			if vnext, ok := settings["vnext"].([]interface{}); ok && len(vnext) > 0 {
+				if node, ok := vnext[0].(map[string]interface{}); ok {
+					node["address"] = address
+					node["port"] = port
 				}
-			} else if p["security"] == "tls" {
-				streamSettings["tlsSettings"] = map[string]interface{}{
-					"serverName": p["sni"],
+			} else if vnext, ok := settings["vnext"].([]map[string]interface{}); ok && len(vnext) > 0 {
+			    vnext[0]["address"] = address
+			    vnext[0]["port"] = port
+			}
+			if servers, ok := settings["servers"].([]interface{}); ok && len(servers) > 0 {
+				if server, ok := servers[0].(map[string]interface{}); ok {
+					server["address"] = address
+					server["port"] = port
 				}
+			} else if servers, ok := settings["servers"].([]map[string]interface{}); ok && len(servers) > 0 {
+			    servers[0]["address"] = address
+			    servers[0]["port"] = port
 			}
-
-			outbound = map[string]interface{}{
-				"protocol": "trojan", "tag": fmt.Sprintf("proxy-%d", id),
-				"settings": map[string]interface{}{
-					"servers": []map[string]interface{}{{
-						"address": address, "port": port,
-						"password": uuid,
-					}},
-				},
-				"streamSettings": streamSettings,
-			}
-		} else if ntypeLow == "shadowsocks" || ntypeLow == "ss" {
-			var p map[string]string
-			json.Unmarshal([]byte(paramsStr), &p)
-			method := p["method"]
-			if method == "" {
-				method = "aes-256-gcm"
-			}
-
-			outbound = map[string]interface{}{
-				"protocol": "shadowsocks", "tag": fmt.Sprintf("proxy-%d", id),
-				"settings": map[string]interface{}{
-					"servers": []map[string]interface{}{{
-						"address": address, "port": port,
-						"password": uuid,
-						"method": method,
-					}},
-				},
-			}
+		} else if ntypeLow != "custom" && ntypeLow != "wireguard" {
+		    if ntypeLow == "vmess" || ntypeLow == "vless" {
+		        outbound["settings"] = map[string]interface{}{
+		            "vnext": []map[string]interface{}{{"address": address, "port": port}},
+		        }
+		    } else {
+		        outbound["settings"] = map[string]interface{}{
+		            "servers": []map[string]interface{}{{"address": address, "port": port}},
+		        }
+		    }
 		}
 
 		if outbound != nil {
