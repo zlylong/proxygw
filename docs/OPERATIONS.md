@@ -1,120 +1,80 @@
-# ProxyGW 部署与运维手册
+# 系统运维与故障排查手册
 
-## 一、系统要求
-- 仅支持原生 Debian 12 / 13 或 Ubuntu 22+ 环境。
-- **严禁使用 Docker 运行**，本系统依赖内核路由（nftables / IP rule）及本地 FRR 进程。
-- 需要 root 权限。
+本文档面向 ProxyGW 的系统管理员，提供服务的日常维护、平滑升级、数据备份以及故障排除的指导原则。
 
-## 二、部署指南 (Git 纳管模式)
+## 🔧 自动化生命周期脚本
 
-可以直接克隆仓库并执行安装脚本，脚本将自动处理依赖安装、内核路由和编译部署：
+项目在 `scripts/` 目录下为您准备了全生命周期的自动化部署与维护脚本：
 
-```bash
-git clone https://github.com/zlylong/proxygw.git /root/proxygw
-cd /root/proxygw/scripts
-chmod +x install.sh
-./install.sh
-```
+- **📦 初始安装/重置环境**：
+  ```bash
+  bash scripts/install.sh
+  ```
+  用于全新环境安装，或彻底修复系统底层依赖与内核环境。此操作会覆盖 Systemd 文件并重新注入 TProxy 路由规则。
 
-**关于初始密码：**
-为了安全，ProxyGW **没有默认固定密码**。首次启动时，如果你没有配置 `PROXYGW_BOOTSTRAP_PASSWORD` 环境变量，后端将随机生成一个 12 位的初始密码，并保存在 `/root/proxygw/config/bootstrap_password.txt` 中。
-你可以通过以下命令查看初始密码：
-```bash
-cat /root/proxygw/config/bootstrap_password.txt
-```
-登录 Web 界面后，请**立即修改密码**，修改后该 txt 文件中的随机密码将作废，后续将使用数据库中的 bcrypt 哈希密码。
+- **🔄 一键平滑升级**：
+  ```bash
+  bash scripts/update.sh
+  ```
+  推荐的日常维护命令。它将自动从 GitHub `main` 分支拉取最新代码，智能检查依赖，重新编译 Go 后端二进制，并平滑重启所有相关守护服务。
 
-## 三、版本更新 (Pull Deployment)
+- **🗑️ 彻底卸载系统**：
+  ```bash
+  bash scripts/uninstall.sh
+  ```
+  安全停用相关守护进程，清理所有的二进制文件，剥离 Linux 内核级别的 TProxy 劫持规则和路由表，恢复纯净的宿主机网络环境。卸载过程中会询问是否保留用户配置文件和 SQLite 数据库。
 
-更新部署非常简单，由于整个环境现在被 Git 纳管，只需要拉取并重启即可。
+## ⚙️ 系统服务状态管理
 
-### 标准更新流程
-
-1. 进入项目目录：
-   ```bash
-   cd /root/proxygw
-   ```
-2. 拉取远端最新代码：
-   ```bash
-   git pull origin main
-   ```
-3. 编译后端（如果后端代码有更新）：
-   ```bash
-   cd backend
-   go build -o proxygw-backend .
-   ```
-4. 重启服务以应用更改：
-   ```bash
-   systemctl restart proxygw
-   ```
-
-### Git 更新异常处理
-如果之前有手动修改过代码或执行过强制回退，导致 Git Pull 遇到冲突，可以使用强行同步远端的策略（**注意：这会丢失未提交的本地代码修改，但不会影响运行期数据库和配置，因为数据库已经被 Git Ignore**）：
+ProxyGW 基于标准的 Systemd 协同工作，日常系统诊断可使用标准命令：
 
 ```bash
-cd /root/proxygw
-git fetch origin
-git reset --hard origin/main
+# 查看所有关联服务的当前运行状态
+systemctl status proxygw mosdns xray frr nftables --no-pager
+
+# 诊断后端服务（UI报错、API异常、数据库锁）
+journalctl -u proxygw -n 100 --no-pager -f
+
+# 诊断 Mosdns（DNS解析异常、假死）
+journalctl -u mosdns -n 100 --no-pager -f
+
+# 诊断 Xray（代理不通、节点连接拒绝）
+journalctl -u xray -n 100 --no-pager -f
 ```
 
-## 四、服务管理
+## 💾 数据备份与密码重置
 
+系统所有持久化状态（节点配置、规则策略、管理员信息）都保存在本地：
+
+**数据备份**：
+建议在进行重大变更前定期备份 `config/` 目录。
 ```bash
-systemctl status proxygw --no-pager
-systemctl status xray --no-pager
-systemctl status mosdns --no-pager
-systemctl status frr --no-pager
-systemctl status nftables --no-pager
+# 备份数据库与关键核心文件
+tar -czvf proxygw_backup_$(date +%F).tar.gz /root/proxygw/config/ /root/proxygw/core/
 ```
 
+**紧急密码重置**：
+管理员密码经过 Bcrypt 强哈希加密。如果遗忘且无法登入 UI，请使用 `sqlite3` 直接重置数据库中的条目：
 ```bash
-systemctl restart proxygw
-systemctl restart xray
-systemctl restart mosdns
+sqlite3 /root/proxygw/config/proxygw.db "UPDATE users SET password_hash = '' WHERE username = 'admin';"
 ```
+*(注意：请根据实际情况或通过初始化生成脚本恢复访问。)*
 
-## 五、常见故障排查
+## 🩺 常见故障排查 (Troubleshooting)
 
-### 5.1 Mosdns 启动失败
+### 1. 局域网内设备无法上网或无法走代理 (Mode A)
+- **排查 Nftables 劫持**：运行 `nft list ruleset` 检查 `prerouting` 链是否正常工作。
+- **排查内核路由**：执行 `ip rule` 检查是否存在 `fwmark 0x1 lookup tproxy`，执行 `ip route show table tproxy` 检查本地回环路由是否正确。
+- **排查 Xray 错误**：使用日志命令检查 Xray 是否因为端口冲突 (12345/10808) 导致配置加载失败。
 
-```bash
-journalctl -u mosdns -n 200 --no-pager
-/usr/local/bin/mosdns start -c /root/proxygw/core/mosdns/config.yaml
-```
+### 2. Mosdns 启动失败退出 / 频繁重启
+- **快速诊断**：停止守护进程后，手动在前台运行以暴露错误信息：
+  ```bash
+  systemctl stop mosdns
+  /usr/local/bin/mosdns start -d /root/proxygw/core/mosdns
+  ```
+- **典型错误**：如果看到 IP 集合相关的 Error，请检查你是否不小心放入了二进制格式的 `geoip.dat` 文件。Mosdns v5+ 必须使用纯文本的 CIDR 格式。
 
-重点检查：
-- 插件引用顺序（被 exec 的插件必须先定义）
-- YAML 行拼接污染
-- `ip_set` 必须使用 CIDR 文本，不可直接喂 `geoip.dat`
-
-### 5.2 Xray 更新失败
-
-```bash
-journalctl -u proxygw -n 100 --no-pager
-ls -l /tmp/xray.zip /tmp/xray/xray
-xray version
-```
-
-### 5.3 密码遗忘处理
-
-由于数据库存储的是 Bcrypt 哈希，无法逆向。在紧急情况下，可以通过 SQLite 命令修改数据库，将密码强制重置。
-
-进入包含 `proxygw.db` 的目录并执行 SQL 替换。
-
-## 六、备份与回滚
-
-数据库：
-```bash
-cp /root/proxygw/config/proxygw.db /root/proxygw/config/proxygw.db.bak.$(date +%F-%H%M%S)
-```
-
-后端二进制：
-```bash
-cp /root/proxygw/backend/proxygw-backend /root/proxygw/backend/proxygw-backend.bak.$(date +%F-%H%M%S)
-```
-
-Xray：
-```bash
-# 接口级触发
-curl -s -X POST http://127.0.0.1/api/update/rollback_xray -H "Authorization: Bearer <TOKEN>"
-```
+### 3. OSPF 路由不生效 / 无法无感接管 (Mode B)
+- **检查邻居状态**：执行 `vtysh` 进入路由器交互模式，输入 `show ip ospf neighbor`。
+- **诊断要素**：确保主路由（如 MikroTik ROS / OpenWrt）已将此代理服务器的 IP 网段加入相同的 OSPF Area 并且 Interface Network Type 匹配（通常应设为 Broadcast）。

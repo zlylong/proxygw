@@ -1,0 +1,49 @@
+# 开发者与架构指南
+
+本文档面向对 ProxyGW 进行二次开发、或希望深入了解其底层网络机制的资深开发者与网络工程师。
+
+## 🏗️ 核心架构
+
+ProxyGW 是一个高度整合的网络系统。开发者坚信 **原生至上 (Native First)**，完全摒弃了 Docker 容器化带来的网络损耗、内核隔离复杂度以及额外开销，采用 Debian 原生裸机部署：
+
+- **后端 (Go 1.25+)**：基于 Gin 框架，处理配置文件的动态生成、订阅解析、节点并发测速、系统服务守护任务与 Web API 支持。
+- **前端 (Vue 3 + TailwindCSS)**：SPA 单页应用，极致的防抖与锁控制体验，编译产物存放在 `frontend/dist`，完全脱机可用。
+- **数据持久化**：SQLite 3。已在代码层开启 **WAL (Write-Ahead Logging) 模式**，解决了默认模式下的高并发读写锁 (`database is locked`) 问题。
+
+## 🚀 核心网络组件与协作
+
+系统由以下四大底层组件协同工作：
+1. **Xray-core**: 处理核心出入站流量、各种代理协议的加解密与 TLS/HTTP 嗅探。
+2. **Mosdns (v5+)**: 负责智能 DNS 分流。不使用 V2Ray 的二进制 `geoip.dat`，而是拉取更纯净的 CIDR 纯文本规则。
+3. **Nftables**: 负责 **Mode A** 模式下的 TProxy (透明代理) 底层流量劫持，将局域网物理流量强行导向 Xray。
+4. **FRR (OSPF)**: 负责 **Mode B** 模式下的动态旁路由宣告，向主路由动态注入网关路由表。
+
+## 🧠 网络分流与 Fake-IP 零延迟原理
+
+传统的透明代理在进行 DNS 解析时往往存在泄露或上游网络延迟（等待国外 DNS 返回真实 IP）。ProxyGW 实现了彻底的零延迟 Fake-IP 架构 (`198.18.0.0/16`)：
+
+1. **瞬时接管**：命中代理规则的域名（基于 `proxy_domains.txt`），Mosdns 将不再向上游发起真实的互联网解析请求，而是直接在 1 毫秒内返回一个保留的 `198.18.x.x` 假 IP。
+2. **流量重定向**：客户端（手机/PC）拿着这个假 IP 发送 TCP/UDP 流量，流量到达网关后被 Nftables 的 TProxy 规则劫持并丢给 Xray 的入站端口。
+3. **Sniffing 嗅探**：Xray 开启了强大的流量嗅探（http, tls, fakedns）。它不仅能从自己的内置映射表中找回假 IP 对应的真实域名，还能从 TLS 的 SNI 字段中提取出真实的请求域名（如 `youtube.com`）。
+4. **规则出站**：Xray 拿到真实域名后，内部根据分流规则直接将流量打包发往远端代理节点，全程无需在本地等待真实 IP 解析。
+
+## 🛡️ 系统安全沙箱 (Systemd Hardening)
+
+所有关键组件（ProxyGW Backend, Xray, Mosdns）的守护进程均运行在受限的 Systemd 权限沙箱中，防范 Shell 注入与越权攻击：
+- `ProtectSystem=strict`: 锁定整个底层 Linux 文件系统为只读。
+- `ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr`: 基于最小权限原则，仅放开当前服务必要的读写目录。
+- `NoNewPrivileges=yes`: 彻底阻断任何形式的 SUID 提权操作。
+- `PrivateTmp=yes`: 隔离系统临时文件空间。
+
+## 📦 供应链防投毒 (Hash Validation)
+
+为了防止公共加速节点或镜像站点（如 mirror.ghproxy.com）发起的中间人篡改攻击，后端在执行二进制与规则更新时，实施了严格的安全校验：
+- **Xray 更新**：同步拉取 GitHub Release 中的 `.dgst` 文件，在内存中完成 SHA256/512 比对。若哈希不符，直接丢弃阻断安装。
+- **GeoData 更新**：同步拉取 `.sha256sum` 并执行强校验，全程使用官方直连。
+
+## 🔧 系统内核级调优
+
+安装脚本已在 `/etc/sysctl.d/99-proxygw.conf` 自动完成了适用于透明代理网关的内核调优：
+- 开启 BBR 拥塞控制与 fq 队列调度 (`net.ipv4.tcp_congestion_control = bbr`)。
+- 放开 `nf_conntrack` 连接跟踪数上限至 104 万，防止大量并发请求导致内核丢包。
+- 开启 TCP Fast Open 及 TCP Tw Reuse 优化短连接性能。
