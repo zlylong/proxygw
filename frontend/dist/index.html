@@ -712,7 +712,7 @@ const showRollbackModal = ref(false);
 
                 const token = ref(localStorage.getItem('token') || '');
                 const password = ref('');
-                const login = async () => {
+                const login = async () => { alert("Button clicked!");
                     if (isSubmitting.value.login) return;
                     if (!password.value || !password.value.trim()) {
                         showToast("请输入密码", "error");
