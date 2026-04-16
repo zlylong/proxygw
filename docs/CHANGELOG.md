@@ -1,5 +1,15 @@
 # ProxyGW Changelog
 
+## 2026-04-16 (v1.3.1: Offline GeoIP Parsing & DNS Optimization)
+
+### Added
+- **Dynamic GeoIP Extraction**: 后端基于纯 Go 标准库实现了完全本地、脱机的 Protobuf 解析器。现在添加任何 geoip 代理规则（如 telegram, netflix 等），系统将直接在本地毫秒级从 geoip.dat 二进制文件中剥离对应的 IPv4 CIDR 网段并注入 OSPF。无需再依赖外部 raw.githubusercontent.com 接口。
+
+### Changed
+- 移除了前端与后端关于 DNS 实时解析流 (WebSocket) 的逻辑。因 Mosdns v5 默认日志为性能优化已精简，不再全量输出解析流。移除后进一步降低了后台的资源开销与 CPU 占用。
+- 前端 DNS 面板 UI 重新排版布局。
+
+
 ## 2026-04-15 (Deep System & UI Optimization, Security, and Fake-IP)
 
 ### Added

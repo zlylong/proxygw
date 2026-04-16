@@ -14,7 +14,7 @@ ProxyGW 是一个高度整合的网络系统。开发者坚信 **原生至上 (N
 
 系统由以下四大底层组件协同工作：
 1. **Xray-core**: 处理核心出入站流量、各种代理协议的加解密与 TLS/HTTP 嗅探。
-2. **Mosdns (v5+)**: 负责智能 DNS 分流。不使用 V2Ray 的二进制 `geoip.dat`，而是拉取更纯净的 CIDR 纯文本规则。
+2. **Mosdns (v5+)**: 负责智能 DNS 分流。不直接将 V2Ray 二进制文件塞给 Mosdns。后端系统基于纯 Go 手工实现了极轻量级 Protobuf 解码器，实现完全离线、本地毫秒级从二进制 geoip.dat 中动态提取任意分类（如 telegram、netflix）的 IPv4 CIDR 网段，并转交给 OSPF 发布路由。
 3. **Nftables**: 负责 **Mode A** 模式下的 TProxy (透明代理) 底层流量劫持，将局域网物理流量强行导向 Xray。
 4. **FRR (OSPF)**: 负责 **Mode B** 模式下的动态旁路由宣告，向主路由动态注入网关路由表。
 
