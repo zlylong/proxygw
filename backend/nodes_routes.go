@@ -46,14 +46,17 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 
 	api.POST("/nodes", func(c *gin.Context) {
 		var n struct {
-			Name, Group, Type, Address, UUID string
+			Name, Group, Type, Address, UUID, Params string
 			Port                             int
 		}
 		if c.BindJSON(&n) != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
 			return
 		}
-		if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, ?, ?, ?, ?, ?, '{}', 1)", n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID); err != nil {
+		if n.Params == "" {
+			n.Params = "{}"
+		}
+		if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)", n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID, n.Params); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
