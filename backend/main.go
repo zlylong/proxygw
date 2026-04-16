@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -266,6 +265,7 @@ func ospfController() {
 			log.Printf("[WARN] query rowsDel err: %v", err)
 		}
 
+		log.Printf("[DEBUG] toDel len = %d", len(toDel))
 		for _, ip := range toDel {
 			addOspfLog("[DEL] " + ip + " (Miss count >= 3)")
 			exec.Command("vtysh", "-c", "conf t", "-c", fmt.Sprintf("no ip route %s 127.0.0.1 tag 100", func(s string) string {
@@ -635,22 +635,13 @@ func applyXrayConfig() error {
 
 	geoipRows, err := db.Query("SELECT value FROM rules WHERE type='geoip' AND policy LIKE 'proxy%'")
 	if err == nil {
-		client := &http.Client{Timeout: 10 * time.Second}
 		for geoipRows.Next() {
 			var tag string
 			if err := geoipRows.Scan(&tag); err == nil {
-				resp, err := client.Get("https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/" + tag + ".txt")
-				if err == nil {
-					body, _ := io.ReadAll(resp.Body)
-					resp.Body.Close()
-					lines := strings.Split(string(body), "\n")
-					for _, line := range lines {
-						ip := strings.TrimSpace(line)
-						if ip != "" && !strings.Contains(ip, ":") {
-							staticIPs = append(staticIPs, ip)
-							staticIPsMap[ip] = true
-						}
-					}
+				ips := extractGeoIPs(getPath("core", "mosdns", "geoip.dat"), tag)
+				for _, ip := range ips {
+					staticIPs = append(staticIPs, ip)
+					staticIPsMap[ip] = true
 				}
 			}
 		}

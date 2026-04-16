@@ -158,7 +158,7 @@
                     <button @click="showPwdModal = true" class="hover:text-white transition"><i class="fa-solid fa-key"></i> 修改密码</button>
                     <button @click="logout" class="hover:text-white transition"><i class="fa-solid fa-arrow-right-from-bracket"></i> 退出</button>
                 </div>
-                <div>ProxyGW v1.3.1 <br> Debian 13 | Xray | FRR</div>
+                <div>ProxyGW v1.3.2 <br> Debian 13 | Xray | FRR</div>
             </div>
         </aside>
 
@@ -420,12 +420,12 @@
                         </div>
 
                         <div class="bg-white p-6 rounded-lg shadow">
-                            <h3 class="text-lg font-medium border-b pb-2 mb-4">Xray 透明代理架构分析</h3>
+                            <h3 class="text-lg font-medium border-b pb-2 mb-4">Xray 透明代理架构分析 (现行最佳实践)</h3>
                             <ul class="space-y-3 text-sm text-gray-700">
-                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>入站协议:</strong> dokodemo-door (端口: 12345)</li>
-                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>透明接管:</strong> TProxy (sockopt.tproxy = true)</li>
-                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>流量嗅探:</strong> Sniffing 开启 (http/tls destOverride)</li>
-                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>出站标签支持:</strong> direct, proxy, block 正常加载</li>
+                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>底层接管:</strong> Nftables 仅做无脑 TProxy 劫持，全量导入 Xray</li>
+                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>流量嗅探:</strong> Sniffing 开启 (http / tls / fakedns 还原真实域名)</li>
+                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>零延迟响应:</strong> 结合 Mosdns 瞬时返回 198.18.x.x 假 IP 消除等待</li>
+                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>路由中枢:</strong> 彻底由 Xray 内部 routing 引擎执行精确的内外网分流</li>
                             </ul>
                         </div>
                     </div>
@@ -555,6 +555,9 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                             }
                             if (params.get('flow')) {
                                 finalParams.flow = params.get('flow');
+                            }
+                            if (params.get('encryption')) {
+                                finalParams.encryption = params.get('encryption');
                             }
                             if (Object.keys(finalParams).length > 0) {
                                 editingNode.value.params = JSON.stringify(finalParams, null, 2);

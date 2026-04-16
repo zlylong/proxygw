@@ -173,6 +173,12 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 					if len(ss) > 0 {
 						finalParams["streamSettings"] = ss
 					}
+					if f := params["flow"]; f != nil && f != "" {
+						finalParams["flow"] = f
+					}
+					if e := params["encryption"]; e != nil && e != "" {
+						finalParams["encryption"] = e
+					}
 
 					paramsJson, err := json.Marshal(finalParams)
 					if err != nil {
