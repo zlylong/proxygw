@@ -525,16 +525,44 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                             editingNode.value.name = decodeURIComponent(urlObj.hash.replace('#', '')) || (editingNode.value.type + ' Node');
                             
                             let params = new URLSearchParams(urlObj.search);
-                            let parsedParams = {};
-                            if (params.get('type')) parsedParams.type = params.get('type');
-                            if (params.get('security')) parsedParams.security = params.get('security');
-                            if (params.get('sni')) parsedParams.sni = params.get('sni');
-                            if (params.get('pbk')) parsedParams.pbk = params.get('pbk');
-                            if (params.get('fp')) parsedParams.fp = params.get('fp');
-                            if (params.get('sid')) parsedParams.sid = params.get('sid');
-                            if (params.get('flow')) parsedParams.flow = params.get('flow');
-                            if (Object.keys(parsedParams).length > 0) {
-                                editingNode.value.params = JSON.stringify(parsedParams, null, 2);
+                            let streamSettings = {};
+                            let network = params.get('type') || 'tcp';
+                            streamSettings.network = network;
+                            
+                            let security = params.get('security') || 'none';
+                            if (security !== 'none') streamSettings.security = security;
+                            
+                            if (security === 'reality') {
+                                streamSettings.realitySettings = {
+                                    fingerprint: params.get('fp') || 'chrome',
+                                    serverName: params.get('sni') || '',
+                                    publicKey: params.get('pbk') || '',
+                                    shortId: params.get('sid') || '',
+                                    spiderX: params.get('spx') || '/'
+                                };
+                            } else if (security === 'tls') {
+                                streamSettings.tlsSettings = {
+                                    serverName: params.get('sni') || ''
+                                };
+                                if (params.get('fp')) streamSettings.tlsSettings.fingerprint = params.get('fp');
+                            }
+                            
+                            if (network === 'ws') {
+                                streamSettings.wsSettings = { path: params.get('path') || '/' };
+                                if (params.get('host')) streamSettings.wsSettings.headers = { Host: params.get('host') };
+                            } else if (network === 'grpc') {
+                                streamSettings.grpcSettings = { serviceName: params.get('serviceName') || params.get('path') || '' };
+                            }
+                            
+                            let finalParams = {};
+                            if (Object.keys(streamSettings).length > 0) {
+                                finalParams.streamSettings = streamSettings;
+                            }
+                            if (params.get('flow')) {
+                                finalParams.flow = params.get('flow');
+                            }
+                            if (Object.keys(finalParams).length > 0) {
+                                editingNode.value.params = JSON.stringify(finalParams, null, 2);
                             }
                         } else if (link.startsWith('ss://')) {
                             editingNode.value.type = 'Shadowsocks';

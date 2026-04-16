@@ -461,7 +461,11 @@ func applyXrayConfig() error {
 				if ntypeLow == "vmess" {
 					params["settings"] = map[string]interface{}{"vnext": []map[string]interface{}{{"users": []map[string]interface{}{{"id": uuid, "alterId": 0}}}}}
 				} else if ntypeLow == "vless" {
-					params["settings"] = map[string]interface{}{"vnext": []map[string]interface{}{{"users": []map[string]interface{}{{"id": uuid, "encryption": "none"}}}}}
+					user := map[string]interface{}{"id": uuid, "encryption": "none"}
+					if flow, ok := params["flow"].(string); ok && flow != "" {
+						user["flow"] = flow
+					}
+					params["settings"] = map[string]interface{}{"vnext": []map[string]interface{}{{"users": []map[string]interface{}{user}}}}
 				} else if ntypeLow == "trojan" {
 					params["settings"] = map[string]interface{}{"servers": []map[string]interface{}{{"password": uuid}}}
 				} else if ntypeLow == "shadowsocks" || ntypeLow == "ss" {
