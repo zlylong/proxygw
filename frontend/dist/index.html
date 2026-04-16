@@ -79,7 +79,6 @@
                     <button @click="saveNode" :disabled="isLoading.save" :class="isLoading.save ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'" class="px-4 py-2 text-white rounded hover:bg-blue-700 text-sm">保存</button>
                 </div>
             </div>
-        </div>
 
 <!-- Rollback Modal -->
         <div v-if="showRollbackModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -712,7 +711,7 @@ const showRollbackModal = ref(false);
 
                 const token = ref(localStorage.getItem('token') || '');
                 const password = ref('');
-                const login = async () => { alert("Button clicked!");
+                const login = async () => { 
                     if (isSubmitting.value.login) return;
                     if (!password.value || !password.value.trim()) {
                         showToast("请输入密码", "error");
