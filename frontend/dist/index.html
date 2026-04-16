@@ -494,6 +494,28 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                             editingNode.value.address = parsed.add || '';
                             editingNode.value.port = parseInt(parsed.port) || 443;
                             editingNode.value.uuid = parsed.id || '';
+                            
+                            let streamSettings = {};
+                            if (parsed.net) streamSettings.network = parsed.net;
+                            if (parsed.tls) streamSettings.security = parsed.tls;
+                            
+                            if (parsed.net === 'ws') {
+                                streamSettings.wsSettings = {};
+                                if (parsed.path) streamSettings.wsSettings.path = parsed.path;
+                                if (parsed.host) streamSettings.wsSettings.headers = { Host: parsed.host };
+                            } else if (parsed.net === 'grpc') {
+                                streamSettings.grpcSettings = {};
+                                if (parsed.path) streamSettings.grpcSettings.serviceName = parsed.path;
+                            }
+                            
+                            if (parsed.tls === 'tls') {
+                                streamSettings.tlsSettings = {};
+                                if (parsed.sni) streamSettings.tlsSettings.serverName = parsed.sni;
+                            }
+                            
+                            if (Object.keys(streamSettings).length > 0) {
+                                editingNode.value.params = JSON.stringify({ streamSettings: streamSettings }, null, 2);
+                            }
                         } else if (link.startsWith('vless://') || link.startsWith('trojan://')) {
                             editingNode.value.type = link.startsWith('vless://') ? 'Vless' : 'Trojan';
                             let urlObj = new URL(link);
@@ -503,13 +525,17 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                             editingNode.value.name = decodeURIComponent(urlObj.hash.replace('#', '')) || (editingNode.value.type + ' Node');
                             
                             let params = new URLSearchParams(urlObj.search);
-                            vlessParams.value.type = params.get('type') || 'tcp';
-                            vlessParams.value.security = params.get('security') || 'none';
-                            vlessParams.value.sni = params.get('sni') || '';
-                            vlessParams.value.pbk = params.get('pbk') || '';
-                            vlessParams.value.fp = params.get('fp') || 'chrome';
-                            vlessParams.value.sid = params.get('sid') || '';
-                            vlessParams.value.flow = params.get('flow') || '';
+                            let parsedParams = {};
+                            if (params.get('type')) parsedParams.type = params.get('type');
+                            if (params.get('security')) parsedParams.security = params.get('security');
+                            if (params.get('sni')) parsedParams.sni = params.get('sni');
+                            if (params.get('pbk')) parsedParams.pbk = params.get('pbk');
+                            if (params.get('fp')) parsedParams.fp = params.get('fp');
+                            if (params.get('sid')) parsedParams.sid = params.get('sid');
+                            if (params.get('flow')) parsedParams.flow = params.get('flow');
+                            if (Object.keys(parsedParams).length > 0) {
+                                editingNode.value.params = JSON.stringify(parsedParams, null, 2);
+                            }
                         } else if (link.startsWith('ss://')) {
                             editingNode.value.type = 'Shadowsocks';
                             let urlObj = new URL(link);
@@ -526,7 +552,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                                 if (parts.length === 2) {
                                     let methodPass = parts[0].split(':');
                                     let hostPort = parts[1].split(':');
-                                    vlessParams.value.method = methodPass[0];
+                                    editingNode.value.params = JSON.stringify({ method: methodPass[0] }, null, 2);
                                     editingNode.value.uuid = methodPass[1] || '';
                                     editingNode.value.address = hostPort[0];
                                     editingNode.value.port = parseInt(hostPort[1]) || 443;
@@ -541,7 +567,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                                 while (b64.length % 4) b64 += '=';
                                 let decoded = atob(b64);
                                 let methodPass = decoded.split(':');
-                                vlessParams.value.method = methodPass[0] || 'aes-256-gcm';
+                                editingNode.value.params = JSON.stringify({ method: methodPass[0] || 'aes-256-gcm' }, null, 2);
                                 editingNode.value.uuid = methodPass[1] || '';
                             }
                             editingNode.value.address = urlObj.hostname || '';
