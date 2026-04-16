@@ -145,7 +145,7 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			exec.Command("systemctl", "start", "nftables").Run()
 			exec.Command("systemctl", "stop", "frr").Run()
 		} else {
-			exec.Command("systemctl", "stop", "nftables").Run()
+			exec.Command("systemctl", "start", "nftables").Run()
 			exec.Command("systemctl", "start", "frr").Run()
 		}
 		if err := applyMosdnsConfig(); err != nil {
