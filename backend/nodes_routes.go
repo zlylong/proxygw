@@ -4,11 +4,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -104,11 +106,18 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 	api.POST("/nodes/ping", func(c *gin.Context) {
 		rows, _ := db.Query("SELECT id, address, port FROM nodes")
 		defer rows.Close()
+		const maxConcurrentPing = 20
+		sem := make(chan struct{}, maxConcurrentPing)
+		var wg sync.WaitGroup
 		for rows.Next() {
 			var id, port int
 			var address string
 			rows.Scan(&id, &address, &port)
+			wg.Add(1)
 			go func(nid int, addr string, p int) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
 				start := time.Now()
 				conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", addr, p), 2*time.Second)
 				ping := -1
@@ -116,9 +125,14 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 					ping = int(time.Since(start).Milliseconds())
 					conn.Close()
 				}
-				db.Exec("UPDATE nodes SET ping=? WHERE id=?", ping, nid)
+				if _, err := db.Exec("UPDATE nodes SET ping=? WHERE id=?", ping, nid); err != nil {
+					log.Printf("[WARN] update node ping failed id=%d err=%v", nid, err)
+				}
 			}(id, address, port)
 		}
+		go func() {
+			wg.Wait()
+		}()
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
