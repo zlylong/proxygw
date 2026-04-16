@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -124,16 +125,15 @@ func initDB() {
 	if err != nil {
 		log.Fatal(err)
 
-	// Enable WAL mode for high concurrency
-	db.Exec("PRAGMA journal_mode=WAL;")
-	db.Exec("PRAGMA synchronous=NORMAL;")
+		// Enable WAL mode for high concurrency
+		db.Exec("PRAGMA journal_mode=WAL;")
+		db.Exec("PRAGMA synchronous=NORMAL;")
 	}
 
 	// Enable WAL mode for high concurrency
 	db.Exec("PRAGMA journal_mode=WAL;")
 	db.Exec("PRAGMA synchronous=NORMAL;")
 	db.Exec("PRAGMA busy_timeout=5000;")
-
 
 	tables := []string{
 		`CREATE TABLE IF NOT EXISTS routes_table (
@@ -165,7 +165,9 @@ func initDB() {
 	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_time', '04:00')")
 
 	var count int
-	if err := db.QueryRow("SELECT count(*) FROM rules").Scan(&count); err != nil && err != sql.ErrNoRows { log.Printf("[WARN] SELECT count(*) FROM rules err: %v", err) }
+	if err := db.QueryRow("SELECT count(*) FROM rules").Scan(&count); err != nil && err != sql.ErrNoRows {
+		log.Printf("[WARN] SELECT count(*) FROM rules err: %v", err)
+	}
 	if count == 0 {
 		db.Exec("INSERT INTO rules (type, value, policy) VALUES ('geosite', 'cn', 'direct')")
 		db.Exec("INSERT INTO rules (type, value, policy) VALUES ('geosite', 'category-ads-all', 'block')")
@@ -233,7 +235,9 @@ func ospfController() {
 	for {
 		time.Sleep(10 * time.Second)
 		var mode string
-		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil && err != sql.ErrNoRows { log.Printf("[WARN] SELECT value FROM settings WHERE key='mode' err: %v", err) }
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil && err != sql.ErrNoRows {
+			log.Printf("[WARN] SELECT value FROM settings WHERE key='mode' err: %v", err)
+		}
 		if mode != "B" {
 			continue
 		}
@@ -343,7 +347,7 @@ func cronUpdater() {
 		}
 
 		sleepDuration := next.Sub(now)
-		
+
 		timer := time.NewTimer(sleepDuration)
 		select {
 		case <-timer.C:
@@ -375,8 +379,12 @@ func scheduleApply() {
 		applyTimer.Stop()
 	}
 	applyTimer = time.AfterFunc(3*time.Second, func() {
-		if err := applyMosdnsConfig(); err != nil { log.Printf("[ERROR] apply mosdns failed: %v", err) }
-		if err := applyXrayConfig(); err != nil { log.Printf("[ERROR] apply xray failed: %v", err) }
+		if err := applyMosdnsConfig(); err != nil {
+			log.Printf("[ERROR] apply mosdns failed: %v", err)
+		}
+		if err := applyXrayConfig(); err != nil {
+			log.Printf("[ERROR] apply xray failed: %v", err)
+		}
 	})
 }
 
@@ -405,9 +413,6 @@ func formatUpstreams(addrs string, useSocks bool) string {
 
 func applyMosdnsConfig() error {
 	var local, remote, lazyStr string
-	
-	
-	
 
 	var proxyDomains []string
 	dRows, err := db.Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")
@@ -431,7 +436,9 @@ func applyMosdnsConfig() error {
 
 	os.WriteFile(getPath("core", "mosdns", "config.yaml"), []byte(config), 0644)
 	err = exec.Command("systemctl", "restart", "mosdns").Run()
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -439,14 +446,17 @@ func applyXrayConfig() error {
 	config := buildBaseXrayConfig()
 
 	rows, err := db.Query("SELECT id, name, type, address, port, uuid, COALESCE(params, '{}') FROM nodes WHERE active=1")
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer rows.Close()
 	var proxyTags []string
 	for rows.Next() {
 		var name, ntype, address, uuid, paramsStr string
 		var port, id int
-		if err := rows.Scan(&id, &name, &ntype, &address, &port, &uuid, &paramsStr); err != nil { continue }
-
+		if err := rows.Scan(&id, &name, &ntype, &address, &port, &uuid, &paramsStr); err != nil {
+			continue
+		}
 
 		ntypeLow := strings.ToLower(ntype)
 
@@ -477,21 +487,21 @@ func applyXrayConfig() error {
 				}
 			}
 			if ntypeLow == "vless" || ntypeLow == "trojan" {
-			    if params["type"] != nil && params["streamSettings"] == nil {
-			        ss := map[string]interface{}{"network": params["type"]}
-			        if params["security"] != nil {
-			            ss["security"] = params["security"]
-			        }
-			        if params["security"] == "reality" {
-			            ss["realitySettings"] = map[string]interface{}{
-			                "fingerprint": params["fp"], "serverName": params["sni"],
-			                "publicKey": params["pbk"], "shortId": params["sid"], "spiderX": "/",
-			            }
-			        } else if params["security"] == "tls" {
-			            ss["tlsSettings"] = map[string]interface{}{"serverName": params["sni"]}
-			        }
-			        params["streamSettings"] = ss
-			    }
+				if params["type"] != nil && params["streamSettings"] == nil {
+					ss := map[string]interface{}{"network": params["type"]}
+					if params["security"] != nil {
+						ss["security"] = params["security"]
+					}
+					if params["security"] == "reality" {
+						ss["realitySettings"] = map[string]interface{}{
+							"fingerprint": params["fp"], "serverName": params["sni"],
+							"publicKey": params["pbk"], "shortId": params["sid"], "spiderX": "/",
+						}
+					} else if params["security"] == "tls" {
+						ss["tlsSettings"] = map[string]interface{}{"serverName": params["sni"]}
+					}
+					params["streamSettings"] = ss
+				}
 			}
 		}
 
@@ -506,8 +516,8 @@ func applyXrayConfig() error {
 					node["port"] = port
 				}
 			} else if vnext, ok := settings["vnext"].([]map[string]interface{}); ok && len(vnext) > 0 {
-			    vnext[0]["address"] = address
-			    vnext[0]["port"] = port
+				vnext[0]["address"] = address
+				vnext[0]["port"] = port
 			}
 			if servers, ok := settings["servers"].([]interface{}); ok && len(servers) > 0 {
 				if server, ok := servers[0].(map[string]interface{}); ok {
@@ -515,27 +525,27 @@ func applyXrayConfig() error {
 					server["port"] = port
 				}
 			} else if servers, ok := settings["servers"].([]map[string]interface{}); ok && len(servers) > 0 {
-			    servers[0]["address"] = address
-			    servers[0]["port"] = port
+				servers[0]["address"] = address
+				servers[0]["port"] = port
 			}
 		} else if ntypeLow != "custom" && ntypeLow != "wireguard" {
-		    if ntypeLow == "vmess" || ntypeLow == "vless" {
-		        outbound["settings"] = map[string]interface{}{
-		            "vnext": []map[string]interface{}{{"address": address, "port": port}},
-		        }
-		    } else {
-		        outbound["settings"] = map[string]interface{}{
-		            "servers": []map[string]interface{}{{"address": address, "port": port}},
-		        }
-		    }
+			if ntypeLow == "vmess" || ntypeLow == "vless" {
+				outbound["settings"] = map[string]interface{}{
+					"vnext": []map[string]interface{}{{"address": address, "port": port}},
+				}
+			} else {
+				outbound["settings"] = map[string]interface{}{
+					"servers": []map[string]interface{}{{"address": address, "port": port}},
+				}
+			}
 		}
 
 		if outbound != nil {
-            if ss, ok := outbound["streamSettings"].(map[string]interface{}); ok {
-                ss["sockopt"] = map[string]interface{}{"mark": 2}
-            } else {
-                outbound["streamSettings"] = map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}}
-            }
+			if ss, ok := outbound["streamSettings"].(map[string]interface{}); ok {
+				ss["sockopt"] = map[string]interface{}{"mark": 2}
+			} else {
+				outbound["streamSettings"] = map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}}
+			}
 			config["outbounds"] = append(config["outbounds"].([]map[string]interface{}), outbound)
 			proxyTags = append(proxyTags, fmt.Sprintf("proxy-%d", id))
 		}
@@ -557,7 +567,9 @@ func applyXrayConfig() error {
 	rules := config["routing"].(map[string]interface{})["rules"].([]map[string]interface{})
 	for rRows.Next() {
 		var rtype, value, policy string
-		if err := rRows.Scan(&rtype, &value, &policy); err != nil { continue }
+		if err := rRows.Scan(&rtype, &value, &policy); err != nil {
+			continue
+		}
 		rule := map[string]interface{}{"type": "field", "outboundTag": policy}
 
 		if rtype == "geosite" || rtype == "domain" {
@@ -587,8 +599,12 @@ func applyXrayConfig() error {
 			continue
 		}
 	}
-	if err := rRows.Err(); err != nil { log.Printf("[WARN] rRows err: %v", err) }
-	if err := rRows.Err(); err != nil { log.Printf("[WARN] rRows err: %v", err) }
+	if err := rRows.Err(); err != nil {
+		log.Printf("[WARN] rRows err: %v", err)
+	}
+	if err := rRows.Err(); err != nil {
+		log.Printf("[WARN] rRows err: %v", err)
+	}
 
 	if len(proxyTags) > 0 {
 		for _, r := range rules {
@@ -611,8 +627,34 @@ func applyXrayConfig() error {
 				staticIPsMap[ip] = true
 			}
 		}
-		if err := staticRows.Err(); err != nil { log.Printf("[WARN] staticRows err: %v", err) }
+		if err := staticRows.Err(); err != nil {
+			log.Printf("[WARN] staticRows err: %v", err)
+		}
 		staticRows.Close()
+	}
+
+	geoipRows, err := db.Query("SELECT value FROM rules WHERE type='geoip' AND policy LIKE 'proxy%'")
+	if err == nil {
+		client := &http.Client{Timeout: 10 * time.Second}
+		for geoipRows.Next() {
+			var tag string
+			if err := geoipRows.Scan(&tag); err == nil {
+				resp, err := client.Get("https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/" + tag + ".txt")
+				if err == nil {
+					body, _ := io.ReadAll(resp.Body)
+					resp.Body.Close()
+					lines := strings.Split(string(body), "\n")
+					for _, line := range lines {
+						ip := strings.TrimSpace(line)
+						if ip != "" && !strings.Contains(ip, ":") {
+							staticIPs = append(staticIPs, ip)
+							staticIPsMap[ip] = true
+						}
+					}
+				}
+			}
+		}
+		geoipRows.Close()
 	}
 
 	// Mark removed static rules for deletion by ospfController
@@ -627,7 +669,9 @@ func applyXrayConfig() error {
 				}
 			}
 		}
-		if err := oldRows.Err(); err != nil { log.Printf("[WARN] oldRows err: %v", err) }
+		if err := oldRows.Err(); err != nil {
+			log.Printf("[WARN] oldRows err: %v", err)
+		}
 		oldRows.Close()
 	}
 
@@ -709,23 +753,23 @@ func main() {
 	initDB()
 	go ospfController()
 	go cronUpdater()
-applyXrayConfig()
+	applyXrayConfig()
 
-exec.Command("ip", "rule", "add", "fwmark", "1", "lookup", "100").Run()
+	exec.Command("ip", "rule", "add", "fwmark", "1", "lookup", "100").Run()
 	exec.Command("ip", "route", "add", "local", "default", "dev", "lo", "table", "100").Run()
 
 	r := gin.Default()
 	registerAPIRoutes(r)
 
 	r.Use(func(c *gin.Context) {
-    if strings.HasPrefix(c.Request.URL.Path, "/ui") {
-        c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-        c.Header("Pragma", "no-cache")
-        c.Header("Expires", "0")
-    }
-    c.Next()
-})
-r.Static("/ui", getPath("frontend", "dist"))
+		if strings.HasPrefix(c.Request.URL.Path, "/ui") {
+			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+			c.Header("Pragma", "no-cache")
+			c.Header("Expires", "0")
+		}
+		c.Next()
+	})
+	r.Static("/ui", getPath("frontend", "dist"))
 	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusFound, "/ui/") })
 
 	log.Println("ProxyGW backend starting on :80")
