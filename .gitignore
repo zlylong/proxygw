@@ -1,10 +1,6 @@
-/core/mosdns/mosdns.log
-/core/xray/access.log
-/core/xray/error.log
 /config/*.db
 /config/bootstrap_password.txt
 /.backup/
-/core/xray/config.json
 /backend/proxygw-backend
 
 # Databases
@@ -15,4 +11,23 @@ backend/proxygw.db
 backend/proxygw.db-shm
 backend/proxygw.db-wal
 
-core/
+# Core Logs
+/core/**/*.log
+/core/mosdns/mosdns.log
+/core/xray/access.log
+/core/xray/error.log
+
+# Core generated configs
+/core/xray/config.json
+/core/mosdns/config.yaml
+/core/frr/frr.conf
+
+# Core downloaded Geodata
+/core/**/*.dat
+/core/**/*.txt
+/core/mosdns/geodata.ver
+
+# Core binaries
+/core/mosdns/mosdns
+/core/xray/xray
+/core/xray/xray.bak

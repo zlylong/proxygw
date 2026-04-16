@@ -35,9 +35,9 @@ func buildBaseXrayConfig() map[string]interface{} {
 			},
 		},
 		"outbounds": []map[string]interface{}{
-			{"protocol": "freedom", "tag": "direct"},
+			{"protocol": "freedom", "tag": "direct", "streamSettings": map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}}},
 			{"protocol": "blackhole", "tag": "block"},
-			{"protocol": "dns", "tag": "dns-out"},
+			{"protocol": "dns", "tag": "dns-out", "streamSettings": map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}}},
 		},
 		"routing": map[string]interface{}{
 			"domainStrategy": "AsIs",
