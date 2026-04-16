@@ -15,6 +15,24 @@ import (
 
 var dnsLogWSConnections int32
 
+const maxDNSLogWSConnections int32 = 16
+
+func tryAcquireDNSLogWSConnection() bool {
+	for {
+		current := atomic.LoadInt32(&dnsLogWSConnections)
+		if current >= maxDNSLogWSConnections {
+			return false
+		}
+		if atomic.CompareAndSwapInt32(&dnsLogWSConnections, current, current+1) {
+			return true
+		}
+	}
+}
+
+func releaseDNSLogWSConnection() {
+	atomic.AddInt32(&dnsLogWSConnections, -1)
+}
+
 func registerDNSRoutes(api *gin.RouterGroup) {
 	api.GET("/dns", func(c *gin.Context) {
 		var local, remote, lazy, mode string
@@ -75,13 +93,11 @@ func registerDNSRoutes(api *gin.RouterGroup) {
 	})
 
 	api.GET("/dns/logs/ws", func(c *gin.Context) {
-		const maxDNSLogWSConnections = 16
-		if active := atomic.AddInt32(&dnsLogWSConnections, 1); active > maxDNSLogWSConnections {
-			atomic.AddInt32(&dnsLogWSConnections, -1)
+		if !tryAcquireDNSLogWSConnection() {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many log streams"})
 			return
 		}
-		defer atomic.AddInt32(&dnsLogWSConnections, -1)
+		defer releaseDNSLogWSConnection()
 		ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			return
