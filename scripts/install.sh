@@ -92,18 +92,8 @@ cp "$REPO_DIR/systemd/proxygw.service" /etc/systemd/system/
 
 
 echo "[5.5/6] Installing Xray and Mosdns and their Systemd services..."
-if [ ! -f "/usr/local/bin/mosdns" ]; then
-    wget -qO /tmp/mosdns.zip "https://github.com/IrineSistiana/mosdns/releases/download/v5.3.3/mosdns-linux-amd64.zip"
-    unzip -qo /tmp/mosdns.zip mosdns -d /usr/local/bin/
-    chmod +x /usr/local/bin/mosdns
-fi
-
-if [ ! -f "/usr/local/bin/xray" ]; then
-    wget -qO /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
-    unzip -qo /tmp/xray.zip xray -d /usr/local/bin/
-    chmod +x /usr/local/bin/xray
-fi
-
+chmod +x "/core/mosdns/mosdns"
+chmod +x "/core/xray/xray"
 
 
 cp "$REPO_DIR/systemd/mosdns.service" /etc/systemd/system/
