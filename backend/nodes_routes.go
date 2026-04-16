@@ -72,7 +72,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 					return
 				}
 				var v struct {
-					Ps, Add, Id string
+					Ps, Add, Id, Net, Tls, Sni, Path, Host string
 					Port        interface{}
 				}
 				if err := json.Unmarshal(decoded, &v); err != nil {
@@ -89,16 +89,33 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 					return
 				}
 
-				vmessSettings := map[string]interface{}{
-					"vnext": []map[string]interface{}{{"users": []map[string]interface{}{{"id": v.Id, "alterId": 0}}}},
+				streamSettings := make(map[string]interface{})
+				if v.Net != "" { streamSettings["network"] = v.Net }
+				if v.Tls != "" { streamSettings["security"] = v.Tls }
+				
+				if v.Net == "ws" {
+					wsSettings := make(map[string]interface{})
+					if v.Path != "" { wsSettings["path"] = v.Path }
+					if v.Host != "" { wsSettings["headers"] = map[string]string{"Host": v.Host} }
+					if len(wsSettings) > 0 { streamSettings["wsSettings"] = wsSettings }
+				} else if v.Net == "grpc" {
+					if v.Path != "" { streamSettings["grpcSettings"] = map[string]string{"serviceName": v.Path} }
 				}
-				finalParamsVmess := map[string]interface{}{"settings": vmessSettings}
+				
+				if v.Tls == "tls" {
+					if v.Sni != "" { streamSettings["tlsSettings"] = map[string]string{"serverName": v.Sni} }
+				}
+				
+				finalParamsVmess := map[string]interface{}{}
+				if len(streamSettings) > 0 {
+					finalParamsVmess["streamSettings"] = streamSettings
+				}
 				vmessParamsJson, err := json.Marshal(finalParamsVmess)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "Marshal vmess params failed"})
 					return
 				}
-				if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vmess', ?, ?, '', ?, 1)", v.Ps, v.Add, portInt, string(vmessParamsJson)); err != nil {
+				if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vmess', ?, ?, ?, ?, 1)", v.Ps, v.Add, portInt, v.Id, string(vmessParamsJson)); err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 					return
 				}
@@ -149,13 +166,9 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 						ss["tlsSettings"] = map[string]interface{}{"serverName": params["sni"]}
 					}
 
-					settings := map[string]interface{}{
-						"vnext": []map[string]interface{}{{"users": []map[string]interface{}{{"id": uuid, "encryption": "none"}}}},
-					}
-
-					finalParams := map[string]interface{}{
-						"settings":       settings,
-						"streamSettings": ss,
+					finalParams := map[string]interface{}{}
+					if len(ss) > 0 {
+						finalParams["streamSettings"] = ss
 					}
 
 					paramsJson, err := json.Marshal(finalParams)
@@ -164,7 +177,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 						return
 					}
 
-					if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vless', ?, ?, '', ?, 1)", alias, host, portInt, string(paramsJson)); err != nil {
+					if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vless', ?, ?, ?, ?, 1)", alias, host, portInt, uuid, string(paramsJson)); err != nil {
 						c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 						return
 					}

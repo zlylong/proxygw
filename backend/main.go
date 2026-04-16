@@ -465,7 +465,11 @@ func applyXrayConfig() error {
 				} else if ntypeLow == "trojan" {
 					params["settings"] = map[string]interface{}{"servers": []map[string]interface{}{{"password": uuid}}}
 				} else if ntypeLow == "shadowsocks" || ntypeLow == "ss" {
-					params["settings"] = map[string]interface{}{"servers": []map[string]interface{}{{"password": uuid, "method": "aes-256-gcm"}}}
+					method := "aes-256-gcm"
+					if m, ok := params["method"].(string); ok && m != "" {
+						method = m
+					}
+					params["settings"] = map[string]interface{}{"servers": []map[string]interface{}{{"password": uuid, "method": method}}}
 				}
 			}
 			if ntypeLow == "vless" || ntypeLow == "trojan" {
