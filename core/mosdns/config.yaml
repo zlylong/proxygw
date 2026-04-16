@@ -1,20 +1,17 @@
 log:
   level: info
-  file: "/root/proxygw/core/mosdns/mosdns.log"
+  file: /root/proxygw/core/mosdns/mosdns.log
 plugins:
   - tag: proxy_domain
     type: domain_set
     args:
       files:
-        - "/root/proxygw/core/mosdns/proxy_domains.txt"
+        - /root/proxygw/core/mosdns/proxy_domains.txt
   - tag: geosite_cn
     type: domain_set
     args:
       files:
-        - "/root/proxygw/core/mosdns/geosite_cn.txt"
-  - tag: lazy_cache
-    type: cache
-    args: { size: 10240, lazy_cache_ttl: 86400 }
+        - /root/proxygw/core/mosdns/geosite_cn.txt
   - tag: forward_local
     type: forward
     args: { upstreams: [{ addr: "119.29.29.29" }, { addr: "223.5.5.5" }] }
@@ -28,9 +25,6 @@ plugins:
   - tag: main_sequence
     type: sequence
     args:
-      - exec: $lazy_cache
-      - matches: [ has_resp ]
-        exec: return
       - matches: [ qname $proxy_domain ]
         exec: $forward_fakeip
       - matches: [ has_resp ]
