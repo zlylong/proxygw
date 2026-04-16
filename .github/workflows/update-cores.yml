@@ -38,7 +38,7 @@ jobs:
           echo "Fetching plain text rules for Mosdns v5..."
           wget -qO core/mosdns/geoip_cn.txt "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/cn.txt"
           wget -qO core/mosdns/geosite_cn.txt "https://raw.githubusercontent.com/Loyalsoldier/domain-list-custom/release/cn.txt"
-          wget -qO core/mosdns/proxy_domains.txt "https://raw.githubusercontent.com/Loyalsoldier/domain-list-custom/release/geolocation-\\!cn.txt"
+          wget -qO core/mosdns/proxy_domains.txt "https://raw.githubusercontent.com/Loyalsoldier/domain-list-custom/release/geolocation-!cn.txt"
 
       - name: Download Mosdns binary
         run: |
