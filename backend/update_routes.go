@@ -35,16 +35,16 @@ func updateGeodata() error {
 
 	cmds := [][]string{
 		{"unzip", "-qo", rulesZip, "direct-list.txt", "geoip.dat", "geosite.dat", "-d", tmpDir},
-		{"cp", filepath.Join(tmpDir, "direct-list.txt"), "/root/proxygw/core/mosdns/geosite_cn.txt"},
-		{"cp", filepath.Join(tmpDir, "geoip.dat"), "/root/proxygw/core/mosdns/geoip.dat"},
-		{"cp", filepath.Join(tmpDir, "geosite.dat"), "/root/proxygw/core/mosdns/geosite.dat"},
+		{"cp", filepath.Join(tmpDir, "direct-list.txt"), getPath("core", "mosdns", "geosite_cn.txt")},
+		{"cp", filepath.Join(tmpDir, "geoip.dat"), getPath("core", "mosdns", "geoip.dat")},
+		{"cp", filepath.Join(tmpDir, "geosite.dat"), getPath("core", "mosdns", "geosite.dat")},
 	}
 	for _, c := range cmds {
 		if err := exec.Command(c[0], c[1:]...).Run(); err != nil {
 			return fmt.Errorf("extraction/copy failed: %v", err)
 		}
 	}
-	if err := os.WriteFile("/root/proxygw/core/mosdns/geodata.ver", []byte(tag), 0644); err != nil {
+	if err := os.WriteFile(getPath("core", "mosdns", "geodata.ver"), []byte(tag), 0644); err != nil {
 		return fmt.Errorf("write geodata version failed: %v", err)
 	}
 	if err := exec.Command("systemctl", "restart", "mosdns", "xray").Run(); err != nil {
@@ -115,7 +115,7 @@ func registerUpdateRoutes(api *gin.RouterGroup) {
 				return
 			}
 
-			if err := exec.Command("cp", "/root/proxygw/core/xray/xray", "/root/proxygw/core/xray/xray.bak").Run(); err != nil {
+			if err := exec.Command("cp", getPath("core", "xray", "xray"), getPath("core", "xray", "xray.bak")).Run(); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "backup failed"})
 				return
 			}
@@ -136,19 +136,19 @@ func registerUpdateRoutes(api *gin.RouterGroup) {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "unzip failed"})
 				return
 			}
-			if err := exec.Command("install", "-m", "755", filepath.Join(tmpDir, "xray"), "/root/proxygw/core/xray/xray").Run(); err != nil {
-				_ = exec.Command("cp", "/root/proxygw/core/xray/xray.bak", "/root/proxygw/core/xray/xray").Run()
+			if err := exec.Command("install", "-m", "755", filepath.Join(tmpDir, "xray"), getPath("core", "xray", "xray")).Run(); err != nil {
+				_ = exec.Command("cp", getPath("core", "xray", "xray.bak"), getPath("core", "xray", "xray")).Run()
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "install failed"})
 				return
 			}
 			if err := exec.Command("systemctl", "restart", "xray").Run(); err != nil {
-				_ = exec.Command("cp", "/root/proxygw/core/xray/xray.bak", "/root/proxygw/core/xray/xray").Run()
+				_ = exec.Command("cp", getPath("core", "xray", "xray.bak"), getPath("core", "xray", "xray")).Run()
 				_ = exec.Command("systemctl", "restart", "xray").Run()
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "restart failed, rolled back"})
 				return
 			}
 		case "rollback_xray":
-			if err := exec.Command("cp", "/root/proxygw/core/xray/xray.bak", "/root/proxygw/core/xray/xray").Run(); err != nil {
+			if err := exec.Command("cp", getPath("core", "xray", "xray.bak"), getPath("core", "xray", "xray")).Run(); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "rollback copy failed"})
 				return
 			}

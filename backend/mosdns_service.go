@@ -18,18 +18,18 @@ func renderMosdnsConfig(local, remote string, lazy bool) string {
 
 	return fmt.Sprintf(`log:
   level: info
-  file: "/root/proxygw/core/mosdns/mosdns.log"
+  file: getPath("core", "mosdns/mosdns.log")
 plugins:
   - tag: proxy_domain
     type: domain_set
     args:
       files:
-        - "/root/proxygw/core/mosdns/proxy_domains.txt"
+        - getPath("core", "mosdns/proxy_domains.txt")
   - tag: geosite_cn
     type: domain_set
     args:
       files:
-        - "/root/proxygw/core/mosdns/geosite_cn.txt"
+        - getPath("core", "mosdns/geosite_cn.txt")
 %s  - tag: forward_local
     type: forward
     args: { upstreams: %s }

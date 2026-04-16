@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -18,10 +19,10 @@ var dnsLogWSConnections int32
 func registerDNSRoutes(api *gin.RouterGroup) {
 	api.GET("/dns", func(c *gin.Context) {
 		var local, remote, lazy, mode string
-		db.QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local)
-		db.QueryRow("SELECT value FROM settings WHERE key='dns_remote'").Scan(&remote)
-		db.QueryRow("SELECT value FROM settings WHERE key='dns_lazy'").Scan(&lazy)
-		db.QueryRow("SELECT value FROM settings WHERE key='dns_mode'").Scan(&mode)
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local); err != nil && err != sql.ErrNoRows { c.JSON(500, gin.H{"error": "db error"}); return }
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_remote'").Scan(&remote); err != nil && err != sql.ErrNoRows { c.JSON(500, gin.H{"error": "db error"}); return }
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_lazy'").Scan(&lazy); err != nil && err != sql.ErrNoRows { c.JSON(500, gin.H{"error": "db error"}); return }
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_mode'").Scan(&mode); err != nil && err != sql.ErrNoRows { c.JSON(500, gin.H{"error": "db error"}); return }
 		if strings.TrimSpace(mode) == "" {
 			mode = "smart"
 			db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('dns_mode', 'smart')")
@@ -70,7 +71,10 @@ func registerDNSRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		applyMosdnsConfig()
+		if err := applyMosdnsConfig(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Mosdns failed: " + err.Error()})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
@@ -87,7 +91,7 @@ func registerDNSRoutes(api *gin.RouterGroup) {
 			return
 		}
 		defer ws.Close()
-		cmd := exec.Command("tail", "-f", "-n", "20", "/root/proxygw/core/mosdns/mosdns.log")
+		cmd := exec.Command("tail", "-f", "-n", "20", getPath("core", "mosdns", "mosdns.log"))
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
 			_ = ws.WriteMessage(websocket.TextMessage, []byte("failed to read logs"))
@@ -117,7 +121,7 @@ func registerDNSRoutes(api *gin.RouterGroup) {
 	})
 
 	api.GET("/dns/logs", func(c *gin.Context) {
-		out, err := exec.Command("tail", "-n", "10", "/root/proxygw/core/mosdns/mosdns.log").Output()
+		out, err := exec.Command("tail", "-n", "10", getPath("core", "mosdns", "mosdns.log")).Output()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "read logs failed"})
 			return

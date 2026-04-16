@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -89,23 +90,23 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 		ram := readMemoryUsage()
 
 		var mode string
-		db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil && err != sql.ErrNoRows { log.Printf("[WARN] SELECT value FROM settings WHERE key='mode' err: %v", err) }
 
 		xrayVer := "Unknown"
-		xrayVersionOut, err := exec.Command("/root/proxygw/core/xray/xray", "version").Output()
+		xrayVersionOut, err := exec.Command(getPath("core", "xray", "xray"), "version").Output()
 		if err == nil {
 			xrayVer = parseXrayVersionOutput(string(xrayVersionOut))
 		}
 
 		geoVer := "Unknown"
-		if data, err := os.ReadFile("/root/proxygw/core/mosdns/geodata.ver"); err == nil && len(data) > 0 {
+		if data, err := os.ReadFile(getPath("core", "mosdns", "geodata.ver")); err == nil && len(data) > 0 {
 			geoVer = strings.TrimSpace(string(data))
-		} else if info, err := os.Stat("/root/proxygw/core/mosdns/geoip.dat"); err == nil {
+		} else if info, err := os.Stat(getPath("core", "mosdns", "geoip.dat")); err == nil {
 			geoVer = info.ModTime().Format("2006-01-02")
 		}
 
-		upStats, _ := exec.Command("/root/proxygw/core/xray/xray", "api", "statsquery", "-server=127.0.0.1:10085", "-name=inbound>>>api_inbound>>>traffic>>>uplink").Output()
-		downStats, _ := exec.Command("/root/proxygw/core/xray/xray", "api", "statsquery", "-server=127.0.0.1:10085", "-name=inbound>>>api_inbound>>>traffic>>>downlink").Output()
+		upStats, _ := exec.Command(getPath("core", "xray", "xray"), "api", "statsquery", "-server=127.0.0.1:10085", "-name=inbound>>>api_inbound>>>traffic>>>uplink").Output()
+		downStats, _ := exec.Command(getPath("core", "xray", "xray"), "api", "statsquery", "-server=127.0.0.1:10085", "-name=inbound>>>api_inbound>>>traffic>>>downlink").Output()
 		upStr := "0 MB"
 		downStr := "0 MB"
 		if strings.Contains(string(upStats), "value") {
@@ -146,15 +147,21 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			exec.Command("systemctl", "stop", "nftables").Run()
 			exec.Command("systemctl", "start", "frr").Run()
 		}
-		applyMosdnsConfig()
-		applyXrayConfig()
+		if err := applyMosdnsConfig(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Mosdns failed: " + err.Error()})
+			return
+		}
+		if err := applyXrayConfig(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Xray failed: " + err.Error()})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
 	api.GET("/cron", func(c *gin.Context) {
 		var enabled, cronTime string
-		db.QueryRow("SELECT value FROM settings WHERE key='cron_enabled'").Scan(&enabled)
-		db.QueryRow("SELECT value FROM settings WHERE key='cron_time'").Scan(&cronTime)
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_enabled'").Scan(&enabled); err != nil && err != sql.ErrNoRows { log.Printf("[WARN] SELECT value FROM settings WHERE key='cron_enabled' err: %v", err) }
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_time'").Scan(&cronTime); err != nil && err != sql.ErrNoRows { log.Printf("[WARN] SELECT value FROM settings WHERE key='cron_time' err: %v", err) }
 		if strings.TrimSpace(cronTime) == "" {
 			cronTime = "04:00"
 			db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_time', ?)", cronTime)
@@ -177,13 +184,14 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 		}
 		db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_enabled', ?)", fmt.Sprintf("%t", req.Enabled))
 		db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_time', ?)", cronTime)
+		triggerCronReload()
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
 	api.GET("/ospf", func(c *gin.Context) {
 		var pub, cand int
-		db.QueryRow("SELECT count(*) FROM routes_table WHERE status='published'").Scan(&pub)
-		db.QueryRow("SELECT count(*) FROM routes_table WHERE status='candidate'").Scan(&cand)
+		if err := db.QueryRow("SELECT count(*) FROM routes_table WHERE status='published'").Scan(&pub); err != nil && err != sql.ErrNoRows { log.Printf("[WARN] SELECT count(*) FROM routes_table WHERE status='published' err: %v", err) }
+		if err := db.QueryRow("SELECT count(*) FROM routes_table WHERE status='candidate'").Scan(&cand); err != nil && err != sql.ErrNoRows { log.Printf("[WARN] SELECT count(*) FROM routes_table WHERE status='candidate' err: %v", err) }
 
 		frrOut, _ := exec.Command("vtysh", "-c", "show ip ospf neighbor json").Output()
 		neighborsCount := 0

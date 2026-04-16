@@ -18,19 +18,30 @@ import (
 
 func registerNodeRoutes(api *gin.RouterGroup) {
 	api.GET("/nodes", func(c *gin.Context) {
-		rows, _ := db.Query("SELECT id, name, grp, type, address, port, uuid, active, ping, COALESCE(params, '{}') FROM nodes")
+		rows, err := db.Query("SELECT id, name, grp, type, address, port, uuid, active, ping, COALESCE(params, '{}') FROM nodes")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
+			return
+		}
 		defer rows.Close()
 		var nodes []map[string]interface{}
 		for rows.Next() {
 			var id, port, ping int
 			var name, grp, ntype, address, uuid, params string
 			var active bool
-			rows.Scan(&id, &name, &grp, &ntype, &address, &port, &uuid, &active, &ping, &params)
+			if err := rows.Scan(&id, &name, &grp, &ntype, &address, &port, &uuid, &active, &ping, &params); err != nil {
+				continue
+			}
 			nodes = append(nodes, map[string]interface{}{"id": id, "name": name, "group": grp, "type": ntype, "address": address, "port": port, "uuid": uuid, "active": active, "ping": ping, "params": params})
 		}
 		if nodes == nil {
 			nodes = make([]map[string]interface{}, 0)
 		}
+		if err := rows.Err(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db rows error"})
+			return
+		}
+		if err := rows.Err(); err != nil { c.JSON(500, gin.H{"error": "db rows error"}); return }
 		c.JSON(http.StatusOK, nodes)
 	})
 
@@ -135,7 +146,11 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 	})
 
 	api.POST("/nodes/ping", func(c *gin.Context) {
-		rows, _ := db.Query("SELECT id, address, port FROM nodes")
+		rows, err := db.Query("SELECT id, address, port FROM nodes")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
+			return
+		}
 		defer rows.Close()
 		const maxConcurrentPing = 20
 		sem := make(chan struct{}, maxConcurrentPing)
@@ -143,7 +158,9 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 		for rows.Next() {
 			var id, port int
 			var address string
-			rows.Scan(&id, &address, &port)
+			if err := rows.Scan(&id, &address, &port); err != nil {
+				continue
+			}
 			wg.Add(1)
 			go func(nid int, addr string, p int) {
 				defer wg.Done()
@@ -161,6 +178,11 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 				}
 			}(id, address, port)
 		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[ERROR] ping nodes rows err: %v", err)
+			return
+		}
+		if err := rows.Err(); err != nil { log.Printf("[ERROR] ping nodes rows err: %v", err); return }
 		go func() {
 			wg.Wait()
 		}()

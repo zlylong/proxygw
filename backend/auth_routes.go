@@ -18,22 +18,22 @@ type SessionInfo struct {
 }
 
 var sessions sync.Map
+type LoginAttempt struct {
+	Count    int
+	LastSeen time.Time
+}
 var loginAttempts sync.Map
 
-func createSession() string {
+func createSession() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		// fallback: use timestamp-derived bytes to avoid empty token on entropy read failure
-		now := time.Now().UnixNano()
-		for i := 0; i < len(b); i++ {
-			b[i] = byte(now >> (i % 8 * 8))
-		}
+		return "", err // fail-close on entropy failure
 	}
 	token := hex.EncodeToString(b)
 	sessions.Store(token, SessionInfo{
 		ExpiresAt: time.Now().Add(24 * time.Hour), // 24-hour expiration
 	})
-	return token
+	return token, nil
 }
 
 func validateSession(token string) bool {
@@ -120,8 +120,15 @@ func verifyAndMaybeMigratePassword(input string) (bool, error) {
 func registerAuthRoutes(public *gin.RouterGroup, authed *gin.RouterGroup) {
 	public.POST("/login", func(c *gin.Context) {
 		ip := c.ClientIP()
-		val, _ := loginAttempts.LoadOrStore(ip, 0)
-		attempts := val.(int)
+		// clean up old entries periodically or inline
+		now := time.Now()
+		val, _ := loginAttempts.LoadOrStore(ip, LoginAttempt{Count: 0, LastSeen: now})
+		attemptData := val.(LoginAttempt)
+		if now.Sub(attemptData.LastSeen) > 30*time.Minute {
+			attemptData.Count = 0
+		}
+		
+		attempts := attemptData.Count
 		if attempts > 10 {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many attempts"})
 			return
@@ -129,6 +136,9 @@ func registerAuthRoutes(public *gin.RouterGroup, authed *gin.RouterGroup) {
 		if attempts > 5 {
 			time.Sleep(2 * time.Second)
 		}
+		attemptData.Count = attempts + 1
+		attemptData.LastSeen = now
+		loginAttempts.Store(ip, attemptData)
 
 		var req struct{ Password string }
 		if c.BindJSON(&req) != nil {
@@ -146,12 +156,16 @@ func registerAuthRoutes(public *gin.RouterGroup, authed *gin.RouterGroup) {
 			return
 		}
 		if !ok {
-			loginAttempts.Store(ip, attempts+1)
+			// already incremented before verify
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
 		loginAttempts.Delete(ip)
-		token := createSession()
+		token, err := createSession()
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to generate session token"})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"token": token})
 	})
 

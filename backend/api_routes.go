@@ -36,8 +36,14 @@ func registerAPIRoutes(r *gin.Engine) {
 	registerUpdateRoutes(authed)
 
 	authed.POST("/apply", func(c *gin.Context) {
-		applyMosdnsConfig()
-		applyXrayConfig()
+		if err := applyMosdnsConfig(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Mosdns failed: " + err.Error()})
+			return
+		}
+		if err := applyXrayConfig(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Xray failed: " + err.Error()})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 }

@@ -11,10 +11,10 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 	api.GET("/rules/categories", func(c *gin.Context) {
 		cacheMutex.Lock()
 		if len(cachedGeosite) == 0 {
-			cachedGeosite = parseDatFile("/root/proxygw/core/mosdns/geosite.dat")
+			cachedGeosite = parseDatFile(getPath("core", "mosdns/geosite.dat"))
 		}
 		if len(cachedGeoip) == 0 {
-			cachedGeoip = parseDatFile("/root/proxygw/core/mosdns/geoip.dat")
+			cachedGeoip = parseDatFile(getPath("core", "mosdns/geoip.dat"))
 		}
 		resGeosite := cachedGeosite
 		resGeoip := cachedGeoip
@@ -23,15 +23,26 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 	})
 
 	api.GET("/rules", func(c *gin.Context) {
-		rows, _ := db.Query("SELECT id, type, value, policy FROM rules")
+		rows, err := db.Query("SELECT id, type, value, policy FROM rules")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
+			return
+		}
 		defer rows.Close()
 		var rules []map[string]interface{}
 		for rows.Next() {
 			var id int
 			var rtype, value, policy string
-			rows.Scan(&id, &rtype, &value, &policy)
+			if err := rows.Scan(&id, &rtype, &value, &policy); err != nil {
+				continue
+			}
 			rules = append(rules, map[string]interface{}{"id": id, "type": rtype, "value": value, "policy": policy})
 		}
+		if err := rows.Err(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db rows error"})
+			return
+		}
+		if err := rows.Err(); err != nil { c.JSON(500, gin.H{"error": "db rows error"}); return }
 		if rules == nil {
 			rules = make([]map[string]interface{}, 0)
 		}

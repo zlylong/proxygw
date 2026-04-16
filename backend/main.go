@@ -120,7 +120,7 @@ func parseDatFile(filename string) []string {
 
 func initDB() {
 	var err error
-	db, err = sql.Open("sqlite3", "../config/proxygw.db")
+	db, err = sql.Open("sqlite3", getPath("config", "proxygw.db"))
 	if err != nil {
 		log.Fatal(err)
 
@@ -165,7 +165,7 @@ func initDB() {
 	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_time', '04:00')")
 
 	var count int
-	db.QueryRow("SELECT count(*) FROM rules").Scan(&count)
+	if err := db.QueryRow("SELECT count(*) FROM rules").Scan(&count); err != nil && err != sql.ErrNoRows { log.Printf("[WARN] SELECT count(*) FROM rules err: %v", err) }
 	if count == 0 {
 		db.Exec("INSERT INTO rules (type, value, policy) VALUES ('geosite', 'cn', 'direct')")
 		db.Exec("INSERT INTO rules (type, value, policy) VALUES ('geosite', 'category-ads-all', 'block')")
@@ -177,8 +177,14 @@ func initDB() {
 
 func ensurePasswordInitialized() {
 	var pwdHash, legacyPwd string
-	_ = db.QueryRow("SELECT value FROM settings WHERE key='password_hash'").Scan(&pwdHash)
-	_ = db.QueryRow("SELECT value FROM settings WHERE key='password'").Scan(&legacyPwd)
+	err = db.QueryRow("SELECT value FROM settings WHERE key='password_hash'").Scan(&pwdHash)
+	if err != nil && err != sql.ErrNoRows {
+		log.Printf("[WARN] get password_hash err: %v", err)
+	}
+	err = db.QueryRow("SELECT value FROM settings WHERE key='password'").Scan(&legacyPwd)
+	if err != nil && err != sql.ErrNoRows {
+		log.Printf("[WARN] get legacy pwd err: %v", err)
+	}
 	if strings.TrimSpace(pwdHash) != "" || strings.TrimSpace(legacyPwd) != "" {
 		return
 	}
@@ -208,7 +214,7 @@ func ensurePasswordInitialized() {
 	}
 
 	if generated {
-		bootstrapPath := "../config/bootstrap_password.txt"
+		bootstrapPath := getPath("config", "bootstrap_password.txt")
 		if err := os.WriteFile(bootstrapPath, []byte(bootstrap+"\n"), 0600); err != nil {
 			log.Printf("[SECURITY] initialized random bootstrap password (save failed: %v)", err)
 		} else {
@@ -227,7 +233,7 @@ func ospfController() {
 	for {
 		time.Sleep(10 * time.Second)
 		var mode string
-		db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil && err != sql.ErrNoRows { log.Printf("[WARN] SELECT value FROM settings WHERE key='mode' err: %v", err) }
 		if mode != "B" {
 			continue
 		}
@@ -239,14 +245,22 @@ func ospfController() {
 
 		db.Exec("UPDATE routes_table SET miss_count = miss_count + 1 WHERE status='published' AND datetime(last_seen, '+' || ttl || ' seconds') < datetime('now')")
 
-		rowsDel, _ := db.Query("SELECT ip FROM routes_table WHERE status='published' AND miss_count >= 3 LIMIT ?", MaxBatch)
 		var toDel []string
-		for rowsDel.Next() {
-			var ip string
-			rowsDel.Scan(&ip)
-			toDel = append(toDel, ip)
+		rowsDel, err := db.Query("SELECT ip FROM routes_table WHERE status='published' AND miss_count >= 3 LIMIT ?", MaxBatch)
+		if err == nil {
+			for rowsDel.Next() {
+				var ip string
+				if err := rowsDel.Scan(&ip); err == nil {
+					toDel = append(toDel, ip)
+				}
+			}
+			if err := rowsDel.Err(); err != nil {
+				log.Printf("[WARN] rowsDel err: %v", err)
+			}
+			rowsDel.Close()
+		} else {
+			log.Printf("[WARN] query rowsDel err: %v", err)
 		}
-		rowsDel.Close()
 
 		for _, ip := range toDel {
 			addOspfLog("[DEL] " + ip + " (Miss count >= 3)")
@@ -260,14 +274,22 @@ func ospfController() {
 			updated = true
 		}
 
-		rowsAdd, _ := db.Query("SELECT ip FROM routes_table WHERE status='candidate' AND first_seen <= datetime('now', '-60 seconds') LIMIT ?", MaxBatch)
 		var toAdd []string
-		for rowsAdd.Next() {
-			var ip string
-			rowsAdd.Scan(&ip)
-			toAdd = append(toAdd, ip)
+		rowsAdd, err := db.Query("SELECT ip FROM routes_table WHERE status='candidate' AND first_seen <= datetime('now', '-60 seconds') LIMIT ?", MaxBatch)
+		if err == nil {
+			for rowsAdd.Next() {
+				var ip string
+				if err := rowsAdd.Scan(&ip); err == nil {
+					toAdd = append(toAdd, ip)
+				}
+			}
+			if err := rowsAdd.Err(); err != nil {
+				log.Printf("[WARN] rowsAdd err: %v", err)
+			}
+			rowsAdd.Close()
+		} else {
+			log.Printf("[WARN] query rowsAdd err: %v", err)
 		}
-		rowsAdd.Close()
 
 		for _, ip := range toAdd {
 			addOspfLog("[ADD] " + ip + " to published_set")
@@ -287,18 +309,55 @@ func ospfController() {
 	}
 }
 
+var cronUpdateChan = make(chan struct{}, 1)
+
+func triggerCronReload() {
+	select {
+	case cronUpdateChan <- struct{}{}:
+	default:
+	}
+}
+
 func cronUpdater() {
 	for {
-		time.Sleep(24 * time.Hour)
-		var enabled string
-		db.QueryRow("SELECT value FROM settings WHERE key='cron_enabled'").Scan(&enabled)
-		if enabled == "true" {
-			log.Println("Running daily cron update for GeoData...")
-			if err := updateGeodata(); err != nil {
-				log.Printf("[SECURITY] Cron update failed: %v", err)
-			} else {
-				log.Println("Cron update for GeoData completed securely.")
+		var enabled, cronTime string
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_enabled'").Scan(&enabled); err != nil && err != sql.ErrNoRows {
+			log.Printf("[WARN] cron_enabled check err: %v", err)
+		}
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_time'").Scan(&cronTime); err != nil && err != sql.ErrNoRows {
+			log.Printf("[WARN] cron_time check err: %v", err)
+		}
+		if cronTime == "" {
+			cronTime = "04:00"
+		}
+
+		now := time.Now()
+		t, err := time.Parse("15:04", cronTime)
+		if err != nil {
+			t, _ = time.Parse("15:04", "04:00")
+		}
+
+		next := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, now.Location())
+		if next.Before(now) {
+			next = next.Add(24 * time.Hour)
+		}
+
+		sleepDuration := next.Sub(now)
+		
+		timer := time.NewTimer(sleepDuration)
+		select {
+		case <-timer.C:
+			if enabled == "true" {
+				log.Println("Running daily cron update for GeoData...")
+				if err := updateGeodata(); err != nil {
+					log.Printf("[SECURITY] Cron update failed: %v", err)
+				} else {
+					log.Println("Cron update for GeoData completed securely.")
+				}
 			}
+		case <-cronUpdateChan:
+			timer.Stop()
+			log.Println("Cron configuration updated, recalculating next run...")
 		}
 	}
 }
@@ -316,8 +375,8 @@ func scheduleApply() {
 		applyTimer.Stop()
 	}
 	applyTimer = time.AfterFunc(3*time.Second, func() {
-		applyMosdnsConfig()
-		applyXrayConfig()
+		if err := applyMosdnsConfig(); err != nil { log.Printf("[ERROR] apply mosdns failed: %v", err) }
+		if err := applyXrayConfig(); err != nil { log.Printf("[ERROR] apply xray failed: %v", err) }
 	})
 }
 
@@ -346,36 +405,45 @@ func formatUpstreams(addrs string, useSocks bool) string {
 
 func applyMosdnsConfig() {
 	var local, remote, lazyStr string
-	db.QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local)
-	db.QueryRow("SELECT value FROM settings WHERE key='dns_remote'").Scan(&remote)
-	db.QueryRow("SELECT value FROM settings WHERE key='dns_lazy'").Scan(&lazyStr)
+	
+	
+	
 
-	dRows, _ := db.Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")
 	var proxyDomains []string
-	for dRows.Next() {
-		var d string
-		dRows.Scan(&d)
-		proxyDomains = append(proxyDomains, d)
+	dRows, err := db.Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")
+	if err == nil {
+		for dRows.Next() {
+			var d string
+			if err := dRows.Scan(&d); err == nil {
+				proxyDomains = append(proxyDomains, d)
+			}
+		}
+		if err := dRows.Err(); err != nil {
+			log.Printf("[WARN] dRows err: %v", err)
+		}
+		dRows.Close()
+	} else {
+		log.Printf("[WARN] query dRows err: %v", err)
 	}
-	dRows.Close()
-	os.WriteFile("../core/mosdns/proxy_domains.txt", []byte(strings.Join(proxyDomains, "\n")), 0644)
+	os.WriteFile(getPath("core", "mosdns", "proxy_domains.txt"), []byte(strings.Join(proxyDomains, "\n")), 0644)
 
 	config := renderMosdnsConfig(local, remote, lazyStr == "true")
 
-	os.WriteFile("../core/mosdns/config.yaml", []byte(config), 0644)
+	os.WriteFile(getPath("core", "mosdns", "config.yaml"), []byte(config), 0644)
 	exec.Command("systemctl", "restart", "mosdns").Run()
 }
 
 func applyXrayConfig() error {
 	config := buildBaseXrayConfig()
 
-	rows, _ := db.Query("SELECT id, name, type, address, port, uuid, COALESCE(params, '{}') FROM nodes WHERE active=1")
+	rows, err := db.Query("SELECT id, name, type, address, port, uuid, COALESCE(params, '{}') FROM nodes WHERE active=1")
+	if err != nil { return err }
 	defer rows.Close()
 	var proxyTags []string
 	for rows.Next() {
 		var name, ntype, address, uuid, paramsStr string
 		var port, id int
-		rows.Scan(&id, &name, &ntype, &address, &port, &uuid, &paramsStr)
+		if err := rows.Scan(&id, &name, &ntype, &address, &port, &uuid, &paramsStr); err != nil { continue }
 
 
 		ntypeLow := strings.ToLower(ntype)
@@ -464,12 +532,16 @@ func applyXrayConfig() error {
 		})
 	}
 
-	rRows, _ := db.Query("SELECT type, value, policy FROM rules")
+	rRows, err := db.Query("SELECT type, value, policy FROM rules")
+	if err != nil {
+		log.Printf("[WARN] routing rules query err: %v", err)
+		return err
+	}
 	defer rRows.Close()
 	rules := config["routing"].(map[string]interface{})["rules"].([]map[string]interface{})
 	for rRows.Next() {
 		var rtype, value, policy string
-		rRows.Scan(&rtype, &value, &policy)
+		if err := rRows.Scan(&rtype, &value, &policy); err != nil { continue }
 		rule := map[string]interface{}{"type": "field", "outboundTag": policy}
 
 		if rtype == "geosite" || rtype == "domain" {
@@ -499,6 +571,8 @@ func applyXrayConfig() error {
 			continue
 		}
 	}
+	if err := rRows.Err(); err != nil { log.Printf("[WARN] rRows err: %v", err) }
+	if err := rRows.Err(); err != nil { log.Printf("[WARN] rRows err: %v", err) }
 
 	if len(proxyTags) > 0 {
 		for _, r := range rules {
@@ -510,28 +584,36 @@ func applyXrayConfig() error {
 	config["routing"].(map[string]interface{})["rules"] = rules
 
 	// Sync static IP rules to OSPF
-	staticRows, _ := db.Query("SELECT value FROM rules WHERE type='ip' AND policy LIKE 'proxy%'")
 	var staticIPs []string
 	staticIPsMap := make(map[string]bool)
-	for staticRows.Next() {
-		var ip string
-		staticRows.Scan(&ip)
-		staticIPs = append(staticIPs, ip)
-		staticIPsMap[ip] = true
+	staticRows, err := db.Query("SELECT value FROM rules WHERE type='ip' AND policy LIKE 'proxy%'")
+	if err == nil {
+		for staticRows.Next() {
+			var ip string
+			if err := staticRows.Scan(&ip); err == nil {
+				staticIPs = append(staticIPs, ip)
+				staticIPsMap[ip] = true
+			}
+		}
+		if err := staticRows.Err(); err != nil { log.Printf("[WARN] staticRows err: %v", err) }
+		staticRows.Close()
 	}
-	staticRows.Close()
 
 	// Mark removed static rules for deletion by ospfController
-	oldRows, _ := db.Query("SELECT ip FROM routes_table WHERE source='static'")
 	var toDelete []string
-	for oldRows.Next() {
-		var ip string
-		oldRows.Scan(&ip)
-		if !staticIPsMap[ip] {
-			toDelete = append(toDelete, ip)
+	oldRows, err := db.Query("SELECT ip FROM routes_table WHERE source='static'")
+	if err == nil {
+		for oldRows.Next() {
+			var ip string
+			if err := oldRows.Scan(&ip); err == nil {
+				if !staticIPsMap[ip] {
+					toDelete = append(toDelete, ip)
+				}
+			}
 		}
+		if err := oldRows.Err(); err != nil { log.Printf("[WARN] oldRows err: %v", err) }
+		oldRows.Close()
 	}
-	oldRows.Close()
 
 	for _, ipStr := range toDelete {
 		db.Exec("UPDATE routes_table SET miss_count=99, ttl=0, last_seen=datetime('now', '-1 hour') WHERE ip=?", ipStr)
@@ -543,7 +625,7 @@ func applyXrayConfig() error {
 
 	configData, _ := json.MarshalIndent(config, "", "  ")
 
-	os.WriteFile("../core/xray/config.json", configData, 0644)
+	os.WriteFile(getPath("core", "xray", "config.json"), configData, 0644)
 	return exec.Command("systemctl", "restart", "xray").Run()
 }
 
@@ -599,7 +681,7 @@ route-map OSPF-EXPORT permit 10
 
 	if newContent != content {
 		log.Printf("[OSPF] Auto-updating FRR config: router-id=%s, network=%s", ip, subnet)
-		os.WriteFile("/root/proxygw/core/frr/frr.conf", []byte(newContent), 0644)
+		os.WriteFile(getPath("core", "frr", "frr.conf"), []byte(newContent), 0644)
 		os.WriteFile("/etc/frr/frr.conf", []byte(newContent), 0644)
 		exec.Command("sed", "-i", "s/ospfd=no/ospfd=yes/", "/etc/frr/daemons").Run()
 		exec.Command("systemctl", "restart", "frr").Run()
@@ -615,7 +697,7 @@ func main() {
 	r := gin.Default()
 	registerAPIRoutes(r)
 
-	r.Static("/ui", "../frontend/dist")
+	r.Static("/ui", getPath("frontend", "dist"))
 	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusMovedPermanently, "/ui/") })
 
 	log.Println("ProxyGW backend starting on :80")
