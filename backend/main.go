@@ -531,6 +531,11 @@ func applyXrayConfig() error {
 		}
 
 		if outbound != nil {
+            if ss, ok := outbound["streamSettings"].(map[string]interface{}); ok {
+                ss["sockopt"] = map[string]interface{}{"mark": 2}
+            } else {
+                outbound["streamSettings"] = map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}}
+            }
 			config["outbounds"] = append(config["outbounds"].([]map[string]interface{}), outbound)
 			proxyTags = append(proxyTags, fmt.Sprintf("proxy-%d", id))
 		}
@@ -539,6 +544,7 @@ func applyXrayConfig() error {
 	if len(proxyTags) > 0 {
 		config["outbounds"] = append(config["outbounds"].([]map[string]interface{}), map[string]interface{}{
 			"protocol": "freedom", "tag": "proxy",
+			"streamSettings": map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}},
 		})
 	}
 
@@ -703,6 +709,7 @@ func main() {
 	initDB()
 	go ospfController()
 	go cronUpdater()
+applyXrayConfig()
 
 	r := gin.Default()
 	registerAPIRoutes(r)

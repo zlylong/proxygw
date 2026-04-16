@@ -196,7 +196,7 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 
 		frrOut, _ := exec.Command("vtysh", "-c", "show ip ospf neighbor json").Output()
 		neighborsCount := 0
-		if strings.Contains(string(frrOut), "routerId") {
+		if strings.Contains(string(frrOut), "nbrState") {
 			neighborsCount = 1
 		}
 
