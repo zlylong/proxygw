@@ -460,6 +460,8 @@
     </div>
 
     <script>
+window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg + " at line " + line); };
+
         const { createApp, ref, computed, onMounted, watch } = Vue;
 
         createApp({

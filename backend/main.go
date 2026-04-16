@@ -708,7 +708,7 @@ func main() {
     c.Next()
 })
 r.Static("/ui", getPath("frontend", "dist"))
-	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusMovedPermanently, "/ui/") })
+	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusFound, "/ui/") })
 
 	log.Println("ProxyGW backend starting on :80")
 	r.Run(":80")
