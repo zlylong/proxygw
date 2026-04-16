@@ -17,7 +17,7 @@
 <body class="bg-gray-50 text-gray-800 h-screen overflow-hidden flex">
     <div id="app" class="flex w-full h-full" v-cloak>
         <!-- Toast -->
-        <div v-if="toastMsg" class="fixed top-5 right-5 px-6 py-3 rounded shadow-lg transition-all z-50 text-white font-medium" :class="toastType === 'error' ? 'bg-red-500' : 'bg-green-500'">
+        <div v-if="toastMsg" class="fixed top-5 right-5 px-6 py-3 rounded shadow-lg transition-all z-[9999] text-white font-medium" :class="toastType === 'error' ? 'bg-red-500' : 'bg-green-500'">
             {{ toastMsg }}
         </div>
         
