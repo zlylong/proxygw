@@ -711,6 +711,9 @@ func main() {
 	go cronUpdater()
 applyXrayConfig()
 
+exec.Command("ip", "rule", "add", "fwmark", "1", "lookup", "100").Run()
+	exec.Command("ip", "route", "add", "local", "default", "dev", "lo", "table", "100").Run()
+
 	r := gin.Default()
 	registerAPIRoutes(r)
 
