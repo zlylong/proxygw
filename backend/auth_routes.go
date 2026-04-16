@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"log"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -157,7 +158,8 @@ func registerAuthRoutes(public *gin.RouterGroup, authed *gin.RouterGroup) {
 		}
 		if !ok {
 			// already incremented before verify
-			c.AbortWithStatus(http.StatusUnauthorized)
+			log.Printf("Login failed for IP %s: incorrect password", ip)
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "incorrect password"})
 			return
 		}
 		loginAttempts.Delete(ip)

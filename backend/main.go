@@ -177,7 +177,7 @@ func initDB() {
 
 func ensurePasswordInitialized() {
 	var pwdHash, legacyPwd string
-	err = db.QueryRow("SELECT value FROM settings WHERE key='password_hash'").Scan(&pwdHash)
+	err := db.QueryRow("SELECT value FROM settings WHERE key='password_hash'").Scan(&pwdHash)
 	if err != nil && err != sql.ErrNoRows {
 		log.Printf("[WARN] get password_hash err: %v", err)
 	}
@@ -403,7 +403,7 @@ func formatUpstreams(addrs string, useSocks bool) string {
 	return "[" + strings.Join(items, ", ") + "]"
 }
 
-func applyMosdnsConfig() {
+func applyMosdnsConfig() error {
 	var local, remote, lazyStr string
 	
 	
@@ -430,7 +430,9 @@ func applyMosdnsConfig() {
 	config := renderMosdnsConfig(local, remote, lazyStr == "true")
 
 	os.WriteFile(getPath("core", "mosdns", "config.yaml"), []byte(config), 0644)
-	exec.Command("systemctl", "restart", "mosdns").Run()
+	err = exec.Command("systemctl", "restart", "mosdns").Run()
+	if err != nil { return err }
+	return nil
 }
 
 func applyXrayConfig() error {
@@ -697,7 +699,15 @@ func main() {
 	r := gin.Default()
 	registerAPIRoutes(r)
 
-	r.Static("/ui", getPath("frontend", "dist"))
+	r.Use(func(c *gin.Context) {
+    if strings.HasPrefix(c.Request.URL.Path, "/ui") {
+        c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+        c.Header("Pragma", "no-cache")
+        c.Header("Expires", "0")
+    }
+    c.Next()
+})
+r.Static("/ui", getPath("frontend", "dist"))
 	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusMovedPermanently, "/ui/") })
 
 	log.Println("ProxyGW backend starting on :80")

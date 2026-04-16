@@ -92,8 +92,8 @@ cp "$REPO_DIR/systemd/proxygw.service" /etc/systemd/system/
 
 
 echo "[5.5/6] Installing Xray and Mosdns and their Systemd services..."
-chmod +x "/core/mosdns/mosdns"
-chmod +x "/core/xray/xray"
+chmod +x "$REPO_DIR/core/mosdns/mosdns"
+chmod +x "$REPO_DIR/core/xray/xray"
 
 
 cp "$REPO_DIR/systemd/mosdns.service" /etc/systemd/system/
