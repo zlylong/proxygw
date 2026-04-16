@@ -1,0 +1,16 @@
+[Unit]
+Description=Mosdns Service
+After=network.target network-online.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/proxygw/core/mosdns
+ExecStart=/usr/local/bin/mosdns start -d /root/proxygw/core/mosdns
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

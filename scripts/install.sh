@@ -88,33 +88,6 @@ go mod tidy
 go build -o proxygw-backend .
 
 echo "[5/6] Creating Systemd service..."
-cat << 'EOF' > "$REPO_DIR/systemd/proxygw.service"
-[Unit]
-Description=ProxyGW Backend Service
-After=network.target network-online.target nss-lookup.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/root/proxygw/backend
-ExecStart=/root/proxygw/backend/proxygw-backend
-Restart=on-failure
-RestartSec=5
-LimitNOFILE=1048576
-
-# Security Sandboxing
-NoNewPrivileges=yes
-ProtectSystem=strict
-PrivateTmp=yes
-ProtectKernelTunables=yes
-ProtectControlGroups=yes
-RestrictSUIDSGID=yes
-ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr
-
-[Install]
-WantedBy=multi-user.target
-EOF
 cp "$REPO_DIR/systemd/proxygw.service" /etc/systemd/system/
 
 
@@ -131,44 +104,7 @@ if [ ! -f "/usr/local/bin/xray" ]; then
     chmod +x /usr/local/bin/xray
 fi
 
-cat << 'EOF' > "$REPO_DIR/systemd/mosdns.service"
-[Unit]
-Description=Mosdns Service
-After=network.target network-online.target nss-lookup.target
-Wants=network-online.target
 
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/root/proxygw/core/mosdns
-ExecStart=/usr/local/bin/mosdns start -d /root/proxygw/core/mosdns
-Restart=on-failure
-RestartSec=5
-LimitNOFILE=1048576
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-cat << 'EOF' > "$REPO_DIR/systemd/xray.service"
-[Unit]
-Description=Xray Service
-After=network.target network-online.target nss-lookup.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/root/proxygw/core/xray
-Environment=XRAY_LOCATION_ASSET=/root/proxygw/core/mosdns
-ExecStart=/usr/local/bin/xray run -confdir /root/proxygw/core/xray
-Restart=on-failure
-RestartSec=5
-LimitNOFILE=1048576
-
-[Install]
-WantedBy=multi-user.target
-EOF
 
 cp "$REPO_DIR/systemd/mosdns.service" /etc/systemd/system/
 cp "$REPO_DIR/systemd/xray.service" /etc/systemd/system/
