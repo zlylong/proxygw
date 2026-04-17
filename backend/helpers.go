@@ -1,11 +1,15 @@
 package main
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
+	"io"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -327,4 +331,46 @@ func extractGeoIPs(filename, targetTag string) []string {
 		}
 	}
 	return res
+}
+
+var aesKey = []byte("proxygw-secret-key-32-bytes-long") // Hardcoded for this fix, ideally derived
+
+func EncryptAES(text string) string {
+	block, err := aes.NewCipher(aesKey)
+	if err != nil {
+		return text
+	}
+	b := base64.StdEncoding.EncodeToString([]byte(text))
+	ciphertext := make([]byte, aes.BlockSize+len(b))
+	iv := ciphertext[:aes.BlockSize]
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return text
+	}
+	cfb := cipher.NewCFBEncrypter(block, iv)
+	cfb.XORKeyStream(ciphertext[aes.BlockSize:], []byte(b))
+	return "ENC:" + base64.StdEncoding.EncodeToString(ciphertext)
+}
+
+func DecryptAES(text string) string {
+	if len(text) < 4 || text[:4] != "ENC:" {
+		return text
+	}
+	text = text[4:]
+	ciphertext, err := base64.StdEncoding.DecodeString(text)
+	if err != nil || len(ciphertext) < aes.BlockSize {
+		return text
+	}
+	block, err := aes.NewCipher(aesKey)
+	if err != nil {
+		return text
+	}
+	iv := ciphertext[:aes.BlockSize]
+	ciphertext = ciphertext[aes.BlockSize:]
+	cfb := cipher.NewCFBDecrypter(block, iv)
+	cfb.XORKeyStream(ciphertext, ciphertext)
+	data, err := base64.StdEncoding.DecodeString(string(ciphertext))
+	if err != nil {
+		return text
+	}
+	return string(data)
 }

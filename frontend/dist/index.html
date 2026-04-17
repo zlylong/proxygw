@@ -26,9 +26,7 @@
             <div class="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-lg font-bold">{{ editingNode.id ? '编辑节点' : '添加节点' }}</h3>
-                    <button v-if="!editingNode.id" @click="importFromLink" class="text-sm bg-purple-100 text-purple-700 px-3 py-1.5 rounded hover:bg-purple-200 transition">
-                        <i class="fa-solid fa-link mr-1"></i>从分享链接解析
-                    </button>
+                    
                 </div>
                 <div class="space-y-4">
                     <div class="grid grid-cols-2 gap-4">
@@ -191,7 +189,7 @@
                     <div v-if="activeTab === 'nodes'" key="nodes">
                         <div class="flex justify-between mb-4">
                             <div class="space-x-2">
-                                <button @click="importNodeUrl" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"><i class="fa-solid fa-link mr-2"></i>URL 导入 (vmess / vless)</button>
+                                <button @click="importNodeUrl" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"><i class="fa-solid fa-link mr-2"></i>一键 URL 导入</button>
                                 <button @click="openAddNode" class="bg-gray-200 text-gray-700 px-4 py-2 rounded shadow hover:bg-gray-300"><i class="fa-solid fa-plus mr-2"></i>手动添加</button>
                             </div>
                             <button @click="pingNodes" class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700"><i class="fa-solid fa-bolt mr-2"></i>TCPing 测速</button>
@@ -455,13 +453,17 @@ Example-2,wg,2.2.2.2,22,root,password,MySecret,JP"></textarea>
                                     </div>
 
                                     <div v-if="selectedRemoteNode.type === 'wg' && selectedRemoteNode.wg">
+                                        <h4 class="font-bold mb-3 flex items-center"><i class="fa-solid fa-link text-blue-500 mr-2"></i> 分享链接</h4>
+                                        <div class="bg-gray-100 p-3 rounded font-mono text-sm break-all flex items-center justify-between mb-4">
+                                            <span>{{ selectedRemoteNode.wg.share_link }}</span>
+                                            <button @click="copyText(selectedRemoteNode.wg.share_link)" class="ml-4 text-gray-500 hover:text-blue-600 shrink-0" title="复制"><i class="fa-regular fa-copy"></i></button>
+                                        </div>
                                         <h4 class="font-bold mb-3 flex items-center"><i class="fa-solid fa-file-code text-purple-500 mr-2"></i> 客户端配置 (wg0.conf)</h4>
                                         <div class="relative">
                                             <pre class="bg-gray-800 text-green-400 p-4 rounded-lg font-mono text-sm overflow-x-auto whitespace-pre">
 [Interface]
 PrivateKey = {{ selectedRemoteNode.wg.client_priv }}
 Address = {{ selectedRemoteNode.wg.client_addr }}
-DNS = 8.8.8.8
 
 [Peer]
 PublicKey = {{ selectedRemoteNode.wg.server_pub }}
@@ -469,7 +471,7 @@ Endpoint = {{ selectedRemoteNode.wg.endpoint }}
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
 </pre>
-                                            <button @click="copyText('[Interface]\nPrivateKey = ' + selectedRemoteNode.wg.client_priv + '\nAddress = ' + selectedRemoteNode.wg.client_addr + '\nDNS = 8.8.8.8\n\n[Peer]\nPublicKey = ' + selectedRemoteNode.wg.server_pub + '\nEndpoint = ' + selectedRemoteNode.wg.endpoint + '\nAllowedIPs = 0.0.0.0/0\nPersistentKeepalive = 25')"" class="absolute top-2 right-2 text-gray-400 hover:text-white" title="复制"><i class="fa-regular fa-copy"></i></button>
+                                            <button @click="copyText('[Interface]\nPrivateKey = ' + selectedRemoteNode.wg.client_priv + '\nAddress = ' + selectedRemoteNode.wg.client_addr + '\n\n[Peer]\nPublicKey = ' + selectedRemoteNode.wg.server_pub + '\nEndpoint = ' + selectedRemoteNode.wg.endpoint + '\nAllowedIPs = 0.0.0.0/0\nPersistentKeepalive = 25')" class="absolute top-2 right-2 text-gray-400 hover:text-white" title="复制"><i class="fa-regular fa-copy"></i></button>
                                         </div>
                                     </div>
                                     
@@ -724,138 +726,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     showNodeModal.value = true;
                 };
 
-                                const importFromLink = async () => {
-                    let link = prompt("请粘贴 vmess://, vless://, trojan:// 或 ss:// 分享链接：");
-                    if (!link) return;
-                    link = link.trim();
-                    try {
-                        if (link.startsWith('vmess://')) {
-                            let b64 = link.replace('vmess://', '');
-                            b64 = b64.replace(/-/g, '+').replace(/_/g, '/');
-                            while (b64.length % 4) b64 += '=';
-                            let decoded = decodeURIComponent(escape(atob(b64)));
-                            let parsed = JSON.parse(decoded);
-                            editingNode.value.type = 'Vmess';
-                            editingNode.value.name = parsed.ps || 'VMess Node';
-                            editingNode.value.address = parsed.add || '';
-                            editingNode.value.port = parseInt(parsed.port) || 443;
-                            editingNode.value.uuid = parsed.id || '';
-                            
-                            let streamSettings = {};
-                            if (parsed.net) streamSettings.network = parsed.net;
-                            if (parsed.tls) streamSettings.security = parsed.tls;
-                            
-                            if (parsed.net === 'ws') {
-                                streamSettings.wsSettings = {};
-                                if (parsed.path) streamSettings.wsSettings.path = parsed.path;
-                                if (parsed.host) streamSettings.wsSettings.headers = { Host: parsed.host };
-                            } else if (parsed.net === 'grpc') {
-                                streamSettings.grpcSettings = {};
-                                if (parsed.path) streamSettings.grpcSettings.serviceName = parsed.path;
-                            }
-                            
-                            if (parsed.tls === 'tls') {
-                                streamSettings.tlsSettings = {};
-                                if (parsed.sni) streamSettings.tlsSettings.serverName = parsed.sni;
-                            }
-                            
-                            if (Object.keys(streamSettings).length > 0) {
-                                editingNode.value.params = JSON.stringify({ streamSettings: streamSettings }, null, 2);
-                            }
-                        } else if (link.startsWith('vless://') || link.startsWith('trojan://')) {
-                            editingNode.value.type = link.startsWith('vless://') ? 'Vless' : 'Trojan';
-                            let urlObj = new URL(link);
-                            editingNode.value.uuid = urlObj.username || urlObj.password || '';
-                            editingNode.value.address = urlObj.hostname || '';
-                            editingNode.value.port = parseInt(urlObj.port) || 443;
-                            editingNode.value.name = decodeURIComponent(urlObj.hash.replace('#', '')) || (editingNode.value.type + ' Node');
-                            
-                            let params = new URLSearchParams(urlObj.search);
-                            let streamSettings = {};
-                            let network = params.get('type') || 'tcp';
-                            streamSettings.network = network;
-                            
-                            let security = params.get('security') || 'none';
-                            if (security !== 'none') streamSettings.security = security;
-                            
-                            if (security === 'reality') {
-                                streamSettings.realitySettings = {
-                                    fingerprint: params.get('fp') || 'chrome',
-                                    serverName: params.get('sni') || '',
-                                    publicKey: params.get('pbk') || '',
-                                    shortId: params.get('sid') || '',
-                                    spiderX: params.get('spx') || '/'
-                                };
-                            } else if (security === 'tls') {
-                                streamSettings.tlsSettings = {
-                                    serverName: params.get('sni') || ''
-                                };
-                                if (params.get('fp')) streamSettings.tlsSettings.fingerprint = params.get('fp');
-                            }
-                            
-                            if (network === 'ws') {
-                                streamSettings.wsSettings = { path: params.get('path') || '/' };
-                                if (params.get('host')) streamSettings.wsSettings.headers = { Host: params.get('host') };
-                            } else if (network === 'grpc') {
-                                streamSettings.grpcSettings = { serviceName: params.get('serviceName') || params.get('path') || '' };
-                            }
-                            
-                            let finalParams = {};
-                            if (Object.keys(streamSettings).length > 0) {
-                                finalParams.streamSettings = streamSettings;
-                            }
-                            if (params.get('flow')) {
-                                finalParams.flow = params.get('flow');
-                            }
-                            if (params.get('encryption')) {
-                                finalParams.encryption = params.get('encryption');
-                            }
-                            if (Object.keys(finalParams).length > 0) {
-                                editingNode.value.params = JSON.stringify(finalParams, null, 2);
-                            }
-                        } else if (link.startsWith('ss://')) {
-                            editingNode.value.type = 'Shadowsocks';
-                            let urlObj = new URL(link);
-                            editingNode.value.name = decodeURIComponent(urlObj.hash.replace('#', '')) || 'SS Node';
-                            
-                            let auth = urlObj.username || '';
-                            if (!auth && urlObj.hostname && !urlObj.pathname) {
-                                // Sometimes ss:// is just base64 encoded entirely
-                                let b64 = link.replace('ss://', '').split('#')[0];
-                                b64 = b64.replace(/-/g, '+').replace(/_/g, '/');
-                                while (b64.length % 4) b64 += '=';
-                                let decoded = atob(b64);
-                                let parts = decoded.split('@');
-                                if (parts.length === 2) {
-                                    let methodPass = parts[0].split(':');
-                                    let hostPort = parts[1].split(':');
-                                    editingNode.value.params = JSON.stringify({ method: methodPass[0] }, null, 2);
-                                    editingNode.value.uuid = methodPass[1] || '';
-                                    editingNode.value.address = hostPort[0];
-                                    editingNode.value.port = parseInt(hostPort[1]) || 443;
-                                    return;
-                                }
-                            }
-                            
-                            let b64 = auth;
-                            if (b64) {
-                                b64 = decodeURIComponent(b64);
-                                b64 = b64.replace(/-/g, '+').replace(/_/g, '/');
-                                while (b64.length % 4) b64 += '=';
-                                let decoded = atob(b64);
-                                let methodPass = decoded.split(':');
-                                editingNode.value.params = JSON.stringify({ method: methodPass[0] || 'aes-256-gcm' }, null, 2);
-                                editingNode.value.uuid = methodPass[1] || '';
-                            }
-                            editingNode.value.address = urlObj.hostname || '';
-                            editingNode.value.port = parseInt(urlObj.port) || 443;
-                        } else {
-                            showToast("不支持的链接格式", "error");
-                        }
-                    } catch (e) {
-                        showToast("链接解析失败: " + e.message, "error");
-                    }
-                };
+                                
 
                 const editNode = (node) => {
                     editingNode.value = { ...node };
@@ -1280,15 +1151,38 @@ const showRollbackModal = ref(false);
                 };
 
                 const copyText = (text) => {
-                    navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板'));
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板'));
+                    } else {
+                        const textArea = document.createElement("textarea");
+                        textArea.value = text;
+                        textArea.style.position = "fixed";
+                        textArea.style.left = "-999999px";
+                        textArea.style.top = "-999999px";
+                        document.body.appendChild(textArea);
+                        textArea.focus();
+                        textArea.select();
+                        try {
+                            document.execCommand('copy');
+                            showToast('已复制到剪贴板');
+                        } catch (err) {
+                            showToast('复制失败', 'error');
+                        }
+                        document.body.removeChild(textArea);
+                    }
                 };
                 
                 const importToLocal = async (node) => {
                     if (node && node.type === 'vless' && node.vless) {
-                        importNodeUrl.value = node.vless.share_link;
+                        showToast('已复制链接，请在节点表粘贴导入');
+                        copyText(node.vless.share_link);
                         activeTab.value = 'nodes';
                         showRemoteDetailsModal.value = false;
-                        showToast('请在此粘贴刚才的分享链接并点击导入');
+                    } else if (node && node.type === 'wg' && node.wg) {
+                        showToast('已复制链接，请在节点表粘贴导入');
+                        copyText(node.wg.share_link);
+                        activeTab.value = 'nodes';
+                        showRemoteDetailsModal.value = false;
                     }
                 };
 
@@ -1327,7 +1221,7 @@ Mode B: 旁路由发布 (OSPF)`)) {
                 }
 
                 const importNodeUrl = async () => {
-                    let url = prompt("请输入 vmess:// 或 vless:// 链接");
+                    let url = prompt("请输入 vmess://, vless://, wireguard:// 等导入链接");
                     if(!url) return;
                     const res = await apiFetch('/api/nodes/import', { method: 'POST', body: JSON.stringify({ Url: url }) });
                     if(res.ok) { showToast("导入成功！"); loadData(); } else { showToast("导入失败，格式不支持或解析出错"); }
@@ -1381,7 +1275,7 @@ Mode B: 旁路由发布 (OSPF)`)) {
                 onMounted(() => { loadData(true); setInterval(() => loadData(false), 5000); });
 
                                 return {
-                    importFromLink, loadData,
+                    loadData,
                     isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');

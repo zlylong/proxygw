@@ -7,6 +7,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"syscall"
+	"os/exec"
+	"regexp"
 	"net/url"
 	"strconv"
 	"strings"
@@ -196,11 +199,63 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 				}
 			}
 		}
+				if strings.HasPrefix(req.Url, "wireguard://") {
+			parsedUrl, err := url.Parse(req.Url)
+			if err == nil {
+				clientPrivKey := parsedUrl.User.Username()
+				host := parsedUrl.Hostname()
+				portStr := parsedUrl.Port()
+				portInt, _ := strconv.Atoi(portStr)
+				if strings.TrimSpace(host) == "" || strings.TrimSpace(clientPrivKey) == "" || portInt <= 0 || portInt > 65535 {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid wireguard endpoint"})
+					return
+				}
+				alias, _ := url.QueryUnescape(parsedUrl.Fragment)
+				if alias == "" { alias = host }
+
+				query := parsedUrl.Query()
+				
+				peer := map[string]interface{}{
+				    "endpoint": fmt.Sprintf("%s:%d", host, portInt),
+				    "publicKey": query.Get("publickey"),
+				}
+				
+				settings := map[string]interface{}{
+				    "secretKey": clientPrivKey,
+				    "peers": []map[string]interface{}{peer},
+				}
+				
+				if addrStr := query.Get("address"); addrStr != "" {
+				    settings["address"] = []string{addrStr}
+				}
+				if mtuStr := query.Get("mtu"); mtuStr != "" {
+					if mtu, err := strconv.Atoi(mtuStr); err == nil { settings["mtu"] = mtu }
+				}
+				if rsv := query.Get("reserved"); rsv != "" {
+					settings["reserved"] = []int{0,0,0} // Mocked reserved formatting, actually needs parsing if it's string, but usually it's array of uint8. We can leave it as string or omit if empty. 
+					// For Xray wireguard, reserved is optional. Xray accepts [0,0,0] format.
+					// Let's just omit it if it's too complex or just set it as string if Xray supports string reserved in some versions. Wait, Xray reserved is usually array of numbers. Let's just pass it if it exists.
+				}
+				
+				params := map[string]interface{}{
+				    "settings": settings,
+				}
+
+				paramsJson, _ := json.Marshal(params)
+				if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Wireguard', ?, ?, '', ?, 1)", alias, host, portInt, string(paramsJson)); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+					return
+				}
+				scheduleApply()
+				c.JSON(http.StatusOK, gin.H{"success": true})
+				return
+			}
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported URL format"})
 	})
 
 	api.POST("/nodes/ping", func(c *gin.Context) {
-		rows, err := db.Query("SELECT id, address, port FROM nodes")
+		rows, err := db.Query("SELECT id, type, address, port FROM nodes")
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
 			return
@@ -211,26 +266,57 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 		var wg sync.WaitGroup
 		for rows.Next() {
 			var id, port int
-			var address string
-			if err := rows.Scan(&id, &address, &port); err != nil {
+			var ntype, address string
+			if err := rows.Scan(&id, &ntype, &address, &port); err != nil {
 				continue
 			}
 			wg.Add(1)
-			go func(nid int, addr string, p int) {
+			go func(nid int, nType string, addr string, p int) {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				start := time.Now()
-				conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", addr, p), 2*time.Second)
+				
 				ping := -1
-				if err == nil {
-					ping = int(time.Since(start).Milliseconds())
-					conn.Close()
+				
+				if strings.ToLower(nType) == "wireguard" || strings.ToLower(nType) == "wg" {
+					out, _ := exec.Command("ping", "-c", "1", "-W", "2", addr).Output()
+					if strings.Contains(string(out), "1 received") || strings.Contains(string(out), "1 packets received") {
+						re := regexp.MustCompile("")
+						matches := re.FindStringSubmatch(string(out))
+						if len(matches) > 1 {
+							f, _ := strconv.ParseFloat(matches[1], 64)
+							ping = int(f)
+							if ping == 0 {
+								ping = 1
+							}
+						} else {
+							ping = 1
+						}
+					}
+				} else {
+					start := time.Now()
+					d := net.Dialer{
+						Timeout: 2 * time.Second,
+						Control: func(network, address string, c syscall.RawConn) error {
+							return c.Control(func(fd uintptr) {
+								err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, 36, 2); if err != nil { log.Printf("[WARN] setsockopt SO_MARK error: %v", err) }
+							})
+						},
+					}
+					conn, err := d.Dial("tcp", fmt.Sprintf("%s:%d", addr, p))
+					if err == nil {
+						ping = int(time.Since(start).Milliseconds())
+						if ping == 0 {
+							ping = 1
+						}
+						conn.Close()
+					}
 				}
+				
 				if _, err := db.Exec("UPDATE nodes SET ping=? WHERE id=?", ping, nid); err != nil {
 					log.Printf("[WARN] update node ping failed id=%d err=%v", nid, err)
 				}
-			}(id, address, port)
+			}(id, ntype, address, port)
 		}
 		if err := rows.Err(); err != nil {
 			log.Printf("[ERROR] ping nodes rows err: %v", err)

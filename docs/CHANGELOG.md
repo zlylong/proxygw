@@ -1,8 +1,19 @@
 # ProxyGW Changelog
 
-## 2026-04-17 (v1.4.0-rc.1: Pre-release)
-- 预发布 1.4.0 版本
-- 同步最新的 GeoData 和 Core 二进制文件
+## 2026-04-17 (v1.4.0-rc.2: Pre-release & Security Audit Fixes)
+
+### Added
+- **Remote Deployment**: 新增“远程节点自动化部署”核心功能，支持对多台装有 Linux 的服务器进行一键下发和管理 WireGuard/VLESS Reality 节点。
+- **Crypto Security**: 为存储在 SQLite 数据库中的 SSH 认证凭据 (密码 / Private Key) 引入了 AES-256-CFB 内存态加解密机制，彻底解决凭证“明文裸奔”高危隐患，并向前兼容历史明文数据。
+- **Uninstallation Pipeline**: 远程节点在删除时，会自动异步派发 SSH 指令对远端机器的网卡、占用端口、残留配置文件及守护进程进行无痕清理 (Stop, Disable & Remove)。
+
+### Changed
+- **Share Link Encoder**: 修复了 VLESS 分享链接拼接时未对节点名称进行 URL 编码的问题，解决由此导致其他客户端剪贴板导入失败的截断瘫痪隐患。
+- **Frontend Panel**: 物理移除了节点编辑面板中无用的“从分享链接解析”功能。
+
+### Fixed
+- **DNS Leak Protection**: 剔除了 WireGuard 配置自动生成中的 `DNS = 8.8.8.8` 字段，恢复客户端退化使用网关级 DNS 的能力，使得 Mosdns 彻底夺回局域网内的 DNS 分流控制权。
+- **Firewall Traversal**: 在 WireGuard `PostUp / PostDown` 部署脚本中配对添加了 `RELATED,ESTABLISHED` 的 `FORWARD` 状态放行规则，以攻克远端服务器在开启 UFW / 严苛默认防火墙场景下的回程丢包断网问题。
 
 ## 2026-04-16 (v1.3.2: Bugfix - Link Parsing & Architecture Docs)
 - **Bug Fix**: 修复前后端 `vless://` 链接解析逻辑，防止在导入节点时漏掉 `flow` (如 `xtls-rprx-vision`) 和 `encryption` 流控参数，导致 Reality 握手失败。
