@@ -165,7 +165,7 @@
                 <h2 class="text-2xl font-semibold text-gray-700">{{ currentTabLabel }}</h2>
                 <div class="flex items-center space-x-4">
                     <span class="text-sm font-bold border rounded px-2 py-1" :class="sysStatus.mode==='A' ? 'bg-purple-100 text-purple-800' : 'bg-orange-100 text-orange-800'">
-                        当前模式: {{ sysStatus.mode === 'A' ? 'Mode A (全局网关 TProxy)' : 'Mode B (OSPF 动态发布)' }}
+                        当前模式: {{ sysStatus.mode === 'A' ? 'Mode A (全局网关 TProxy)' : (sysStatus.mode === 'B' ? 'Mode B (纯 Fake-IP)' : 'Mode C (真实 OSPF)') }}
                     </span>
                     <select :value="sysStatus.mode" @change="changeMode($event.target.value)" class="bg-gray-200 text-gray-700 text-sm px-2 py-1 rounded border-none shadow focus:ring-0 outline-none cursor-pointer">
                         <option value="A">Mode A (全局网关)</option>
@@ -1216,7 +1216,8 @@ const showRollbackModal = ref(false);
                     const newMode = sysStatus.value.mode === 'A' ? 'B' : 'A';
                     if(confirm(`切换到 Mode ${newMode}？
 Mode A: 全局网关 (nftables)
-Mode B: 旁路由发布 (OSPF)`)) {
+Mode B: 旁路由纯Fake-IP (OSPF)
+Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                         await apiFetch('/api/mode', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
                         loadData();
                     }

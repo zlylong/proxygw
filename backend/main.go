@@ -231,11 +231,11 @@ func ensurePasswordInitialized() {
 
 func ospfController() {
 	var lastUpdate time.Time
-	const CoolingTime = 30 * time.Second
-	const MaxBatch = 50
+	const CoolingTime = 10 * time.Second
+	const MaxBatch = 500
 
 	for {
-		time.Sleep(10 * time.Second)
+		time.Sleep(2 * time.Second)
 		var mode string
 		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil && err != sql.ErrNoRows {
 			log.Printf("[WARN] SELECT value FROM settings WHERE key='mode' err: %v", err)
