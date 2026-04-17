@@ -65,6 +65,7 @@ ProxyGW 设计了三种物理隔离的网络接管模式，以适应不同级别
 *由于现代 CDN 的复杂性，如果某网站的动态 CDN IP 未被开源的 GeoIP 库收录，该流量将无法被 OSPF 路由接管，从而导致直连或漏网。如果您对“不漏网”有极致要求，请使用 Mode B。*
 
 **注意防环路**：由于 OSPF 会播报真实的海外网段，如果您的代理节点 IP 刚好在这个网段里，就会形成死循环断网！您必须在主路由器上配置 **源地址绕过 (PBR 策略路由)**：让来自 ProxyGW IP 的流量强制走外网，无视 OSPF 路由。
+*(👉 ROS v7 示例：新建一个 `bypass_proxy` 路由表指向公网 WAN 口，然后执行 `/routing rule add src-address=<ProxyGW_IP>/32 action=lookup-only-in-table table=bypass_proxy`，详见[运维文档](./docs/OPERATIONS.md))*
 
 
 ## 📚 文档指南

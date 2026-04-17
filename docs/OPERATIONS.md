@@ -79,3 +79,20 @@ sqlite3 /root/proxygw/config/proxygw.db "UPDATE users SET password_hash = '' WHE
 - **检查邻居状态**：执行 `vtysh` 进入路由器交互模式，输入 `show ip ospf neighbor`。
 - **诊断要素**：确保主路由（如 MikroTik ROS / OpenWrt）已将此代理服务器的 IP 网段加入相同的 OSPF Area 并且 Interface Network Type 匹配（通常应设为 Broadcast）。
 - **防环路漏配 (Mode C)**：如果在 Mode C 发现代理通缩、网速极慢或完全断网，请检查主路由上是否正确配置了源地址绕过（PBR 策略路由）以防止 OSPF 环路。
+
+### 4. MikroTik ROS 防环路 PBR 配置示例 (Mode C 必备)
+在 Mode C 下，ProxyGW 会通过 OSPF 将大量的真实代理 IP 网段发给 ROS，这会覆盖 ROS 的默认路由。当 ProxyGW 自身向代理节点发起出站连接时，如果节点的 IP 刚好命中这些 OSPF 路由，流量又会被 ROS 踢回给 ProxyGW，造成死循环。
+您必须在 ROS 中强制让 ProxyGW 发出的流量直连公网：
+
+**ROS v7 配置命令参考：**
+```routeros
+# 1. 创建一个干净的独立路由表 (不受 OSPF 污染)
+/routing table add name=bypass_proxy fib
+
+# 2. 为该表指定真实的物理出口 (假设公网出口为 pppoe-out1)
+/ip route add dst-address=0.0.0.0/0 gateway=pppoe-out1 routing-table=bypass_proxy
+
+# 3. 添加策略路由规则 (PBR)：强制网关设备 (如 192.168.20.155) 的所有出站流量只查这个干净的表
+/routing rule add src-address=192.168.20.155/32 action=lookup-only-in-table table=bypass_proxy
+```
+*注：如果是 ROS v6 系统，在第1步无需 `fib` 参数，在 IP -> Routes -> Rules 菜单中配置对应的 Src Address 和 Table 即可。*
