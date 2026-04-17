@@ -10,18 +10,18 @@
 ## 2026-04-17 (v1.4.7: Performance & Kernel Hardening)
 
 ### 🚀 Kernel & Firewall Hardening
-- **Nftables Loop Prevention**: 彻底重写 `/etc/nftables.conf` 透明代理接管栈。在 `prerouting` 链强制增设 `meta mark 0x02 return` 防环路跳出规则，从内核态硬性切断 Xray 发出流量被自身二次劫持的致命死循环。
-- **IPv6 DNS/Traffic Leak Protection**: 在局域网透明代理链路中加入严苛的 `meta nfproto ipv6 drop` 规则。当客户端向双栈域名发起解析并试图通过 IPv6 通信时直接静默丢弃，强制回落至 IPv4 透明代理隧道，彻底封堵真 IP 裸奔漏洞。
-- **IP Rule Idempotency (内存泄漏修复)**: 重构了 Go 后端关于策略路由 (`ip rule / ip route`) 的下发逻辑，引入幂等性检查与自动清理。修复了由于网关频繁热重载导致底层路由表无限膨胀（叠加近百条重复规则）并最终耗尽 CPU 的高危 BUG。
-- **Extreme Concurrency (Sysctl)**: 在自动化安装部署脚本 `install.sh` 中固化 ProxyGW 专属的内核网络栈参数 (`/etc/sysctl.d/99-proxygw.conf`)：
-  - 暴力提升连接跟踪表容量 (`nf_conntrack_max = 1048576`)，杜绝 P2P 和大并发场景下的 `table full` 熔断。
-  - 全局默认开启 **BBR** 拥塞控制算法与 `fq_codel` 队列，代理延迟与吞吐量提升至物理极限。
-  - 正确开启 `route_localnet=1`，允许本机回环劫持，匹配透明代理的流量回注。
+- **Nftables Loop Prevention**: 彻底重写  透明代理接管栈。在  链强制增设  防环路跳出规则，从内核态硬性切断 Xray 发出流量被自身二次劫持的致命死循环。
+- **IPv6 DNS/Traffic Leak Protection**: 在局域网透明代理链路中加入严苛的  规则。当客户端向双栈域名发起解析并试图通过 IPv6 通信时直接静默丢弃，强制回落至 IPv4 透明代理隧道，彻底封堵真 IP 裸奔漏洞。
+- **IP Rule Idempotency (内存泄漏修复)**: 重构了 Go 后端关于策略路由 () 的下发逻辑，引入幂等性检查与自动清理。修复了由于网关频繁热重载导致底层路由表无限膨胀（叠加近百条重复规则）并最终耗尽 CPU 的高危 BUG。
+- **Extreme Concurrency (Sysctl)**: 在自动化安装部署脚本  中固化 ProxyGW 专属的内核网络栈参数 ()：
+  - 暴力提升连接跟踪表容量 ()，杜绝 P2P 和大并发场景下的  熔断。
+  - 全局默认开启 **BBR** 拥塞控制算法与  队列，代理延迟与吞吐量提升至物理极限。
+  - 正确开启 ，允许本机回环劫持，匹配透明代理的流量回注。
 
 ## 2026-04-17 (v1.4.6: Stable Release)
 
 ### 🐛 Bug Fixes
-- **Mode C Geosite Route Injection**: 完美修复了在 Mode C (纯 OSPF 模式) 下，用户添加 `geosite` 域名规则时，无法将真实的 GeoIP 下发给主路由的缺陷。现在后端会自动将 `geosite` 的分类标签与 `geoip` 进行智能匹配降级，自动为代理域名提取出对应的真实 IP 网段并执行 OSPF 广播，彻底对齐用户直觉逻辑。
+- **Mode C Geosite Route Injection**: 完美修复了在 Mode C (纯 OSPF 模式) 下，用户添加  域名规则时，无法将真实的 GeoIP 下发给主路由的缺陷。现在后端会自动将  的分类标签与  进行智能匹配降级，自动为代理域名提取出对应的真实 IP 网段并执行 OSPF 广播，彻底对齐用户直觉逻辑。
 
 ## 2026-04-17 (v1.4.5: Stable Release)
 
@@ -32,15 +32,15 @@
 
 ### 🚀 Architecture Refactoring (3-Mode Routing)
 - **Mode A (全局网关接管)**: 专门针对新手和普通网络环境。启用 Nftables TProxy 强行接管所有物理流量，同时在底层强制终止 FRR (OSPF) 进程，彻底阻断任何不必要的路由通告，确保零路由污染。
-- **Mode B (纯 Fake-IP)**: 专门针对高性能需求用户。Mosdns 开启全局 Fake-IP，FRR (OSPF) 严格只向主路由宣告 `198.18.0.0/16` 虚拟网段。物理隔绝真实的海外 GeoIP 下发，从根本上免疫 OSPF 环路。
+- **Mode B (纯 Fake-IP)**: 专门针对高性能需求用户。Mosdns 开启全局 Fake-IP，FRR (OSPF) 严格只向主路由宣告  虚拟网段。物理隔绝真实的海外 GeoIP 下发，从根本上免疫 OSPF 环路。
 - **Mode C (纯 OSPF)**: 专门针对需要真实 IP 的高级玩家。彻底从 Xray 和 Mosdns 配置中连根拔起 Fake-IP (FakeDNS) 组件，FRR (OSPF) 恢复全量 GeoIP 真实海外网段的动态下发。切换时自动抹除遗留路由缓存。
 
 ### 🔐 Security & Stability
 
 ### Fixed
-- **DNS Configuration Regression**: 修复了 `applyMosdnsConfig()` 遗漏读取数据库的问题，现在用户在面板保存的 `dns_local`, `dns_remote`, `dns_lazy` 配置可以正确下发并真正生效至 Mosdns 引擎。
-- **SSH Security (MITM)**: 强化远程节点部署架构。移除了高危的 `InsecureIgnoreHostKey()`，引入了基于 `known_hosts` 的 TOFU (Trust On First Use) 机制，现在服务端能有效抵御针对部署链路的中间人劫持攻击。
-- **Code Quality**: 移除了 `main.go` 中紧随 `log.Fatal` 的多余数据库 PRAGMA 写入死代码，提升代码健壮性。
+- **DNS Configuration Regression**: 修复了  遗漏读取数据库的问题，现在用户在面板保存的 , ,  配置可以正确下发并真正生效至 Mosdns 引擎。
+- **SSH Security (MITM)**: 强化远程节点部署架构。移除了高危的 ，引入了基于  的 TOFU (Trust On First Use) 机制，现在服务端能有效抵御针对部署链路的中间人劫持攻击。
+- **Code Quality**: 移除了  中紧随  的多余数据库 PRAGMA 写入死代码，提升代码健壮性。
 
 ### 🚀 Features & Audit Fixes
 
@@ -54,12 +54,12 @@
 - **Frontend Panel**: 物理移除了节点编辑面板中无用的“从分享链接解析”功能。
 
 ### Fixed
-- **DNS Leak Protection**: 剔除了 WireGuard 配置自动生成中的 `DNS = 8.8.8.8` 字段，恢复客户端退化使用网关级 DNS 的能力，使得 Mosdns 彻底夺回局域网内的 DNS 分流控制权。
-- **Firewall Traversal**: 在 WireGuard `PostUp / PostDown` 部署脚本中配对添加了 `RELATED,ESTABLISHED` 的 `FORWARD` 状态放行规则，以攻克远端服务器在开启 UFW / 严苛默认防火墙场景下的回程丢包断网问题。
+- **DNS Leak Protection**: 剔除了 WireGuard 配置自动生成中的  字段，恢复客户端退化使用网关级 DNS 的能力，使得 Mosdns 彻底夺回局域网内的 DNS 分流控制权。
+- **Firewall Traversal**: 在 WireGuard  部署脚本中配对添加了  的  状态放行规则，以攻克远端服务器在开启 UFW / 严苛默认防火墙场景下的回程丢包断网问题。
 
 ## 2026-04-16 (v1.3.2: Bugfix - Link Parsing & Architecture Docs)
-- **Bug Fix**: 修复前后端 `vless://` 链接解析逻辑，防止在导入节点时漏掉 `flow` (如 `xtls-rprx-vision`) 和 `encryption` 流控参数，导致 Reality 握手失败。
-- **Documentation**: 更新 UI 面板中的 "Xray 透明代理架构分析"，精准描述当前采用的最佳实践架构（Nftables 无脑劫持 + Xray Sniffing 与 Routing 分流）。
+- **Bug Fix**: 修复前后端  链接解析逻辑，防止在导入节点时漏掉  (如 ) 和  流控参数，导致 Reality 握手失败。
+- **Documentation**: 更新 UI 面板中的 Xray 透明代理架构分析，精准描述当前采用的最佳实践架构（Nftables 无脑劫持 + Xray Sniffing 与 Routing 分流）。
 
 ## 2026-04-16 (v1.3.1: Offline GeoIP Parsing & DNS Optimization)
 
