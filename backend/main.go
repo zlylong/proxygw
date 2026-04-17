@@ -16,8 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
-	_ "github.com/mattn/go-sqlite3"
+		_ "github.com/mattn/go-sqlite3"
 )
 
 var db *sql.DB
@@ -140,7 +139,6 @@ func initDB() {
 		"CREATE TABLE IF NOT EXISTS remote_node_wg (node_id INTEGER PRIMARY KEY, server_priv TEXT, server_pub TEXT, client_priv TEXT, client_pub TEXT, endpoint TEXT, port INTEGER, tunnel_addr TEXT, client_addr TEXT);",
 		"CREATE TABLE IF NOT EXISTS remote_node_vless (node_id INTEGER PRIMARY KEY, uuid TEXT, reality_priv TEXT, reality_pub TEXT, short_id TEXT, server_name TEXT, dest TEXT, port INTEGER, share_link TEXT);",
 		"CREATE TABLE IF NOT EXISTS remote_node_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER, action TEXT, status TEXT, log_text TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);",
-		"CREATE TABLE IF NOT EXISTS remote_node_templates (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, type TEXT, default_params TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);",
 
 		`CREATE TABLE IF NOT EXISTS routes_table (
 			ip TEXT PRIMARY KEY, domain TEXT, source TEXT,
@@ -376,8 +374,7 @@ func cronUpdater() {
 var (
 	applyTimer *time.Timer
 	applyMutex sync.Mutex
-	upgrader   = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return isTrustedOrigin(r.Header.Get("Origin"), r.Host) }}
-)
+	)
 
 func scheduleApply() {
 	applyMutex.Lock()

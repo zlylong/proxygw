@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var dnsLogWSConnections int32
 
 func registerDNSRoutes(api *gin.RouterGroup) {
 	api.GET("/dns", func(c *gin.Context) {

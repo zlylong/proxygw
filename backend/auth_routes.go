@@ -226,8 +226,4 @@ func registerAuthRoutes(public *gin.RouterGroup, authed *gin.RouterGroup) {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
-	authed.POST("/logout_all", func(c *gin.Context) {
-		revokeAllSessions()
-		c.JSON(http.StatusOK, gin.H{"success": true})
-	})
 }

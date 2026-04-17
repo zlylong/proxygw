@@ -20,3 +20,10 @@ backend/proxygw.db-wal
 /core/xray/config.json
 /core/mosdns/config.yaml
 /core/frr/frr.conf
+
+# Binaries & Artifacts
+/backend/proxygw
+/backend/proxygw-backend
+/backend/proxygw-backend-test
+*.bak
+*.patch

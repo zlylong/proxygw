@@ -943,21 +943,8 @@ const showRollbackModal = ref(false);
                 const connectWs = (tab) => {
                     if (ws) { ws.close(); ws = null; }
                     clearTimeout(wsReconnectTimer);
-
-                    if (tab === 'dns') {
-                        ws = new WebSocket(`ws://${window.location.host}/api/dns/logs/ws`);
-                        ws.onmessage = (e) => {
-                            dnsLogs.value.push(e.data);
-                            if (dnsLogs.value.length > 100) dnsLogs.value.shift();
-                        };
-                    }
-
-                    if (ws) {
-                        ws.onclose = () => {
-                            if (activeTab.value === tab) {
-                                wsReconnectTimer = setTimeout(() => connectWs(tab), 3000);
-                            }
-                        };
+                    // DNS logs WS has been removed in backend for performance.
+                };
                     }
                 };
 

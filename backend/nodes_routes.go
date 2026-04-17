@@ -281,7 +281,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 				if strings.ToLower(nType) == "wireguard" || strings.ToLower(nType) == "wg" {
 					out, _ := exec.Command("ping", "-c", "1", "-W", "2", addr).Output()
 					if strings.Contains(string(out), "1 received") || strings.Contains(string(out), "1 packets received") {
-						re := regexp.MustCompile("")
+						re := regexp.MustCompile(`time=([0-9.]+)`)
 						matches := re.FindStringSubmatch(string(out))
 						if len(matches) > 1 {
 							f, _ := strconv.ParseFloat(matches[1], 64)

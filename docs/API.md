@@ -39,7 +39,7 @@ Base URL: `http://<host>/api`
 ```
 行为：
 - A: `start nftables`, `stop frr`
-- B: `stop nftables`, `start frr`
+- B: `start nftables`, `start frr`
 - 自动触发 Mosdns/Xray 配置重生成
 
 ## 节点管理
