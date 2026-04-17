@@ -110,7 +110,7 @@
                     </select>
                     <div class="flex justify-end space-x-2 mt-4">
                         <button @click="showMosdnsRollbackModal = false" class="px-4 py-2 border rounded hover:bg-gray-50 text-sm">取消</button>
-                        <button @click="confirmMosdnsRollback" :disabled="!selectedMosdnsRollbackVersion || isUpdating[rollback_mosdns_specific]" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 text-sm"><i v-if="isUpdating[rollback_mosdns_specific]" class="fas fa-spinner fa-spin mr-1"></i>确认安装</button>
+                        <button @click="confirmMosdnsRollback" :disabled="!selectedMosdnsRollbackVersion || isUpdating['rollback_mosdns_specific']" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 text-sm"><i v-if="isUpdating['rollback_mosdns_specific']" class="fas fa-spinner fa-spin mr-1"></i>确认安装</button>
                     </div>
                 </div>
             </div>
@@ -681,8 +681,8 @@ PersistentKeepalive = 25
                                         <div><div class="font-bold">Mosdns</div><div class="text-xs text-gray-500">防泄漏 DNS 分流引擎 <span v-if="sysStatus.mosdnsVersion" class="ml-1 px-1 bg-gray-100 rounded border">{{ sysStatus.mosdnsVersion }}</span></div></div>
                                         <div class="space-x-2">
                                             <button @click="openMosdnsRollbackModal" class="bg-gray-100 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-200 disabled:opacity-50">指定版本</button>
-                                            <button @click="updateComp(rollback_mosdns)" :disabled="isUpdating[rollback_mosdns]" class="bg-gray-100 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-200 disabled:opacity-50" title="回滚到上一次安装的版本"><i v-if="isUpdating[rollback_mosdns]" class="fas fa-spinner fa-spin mr-1"></i>本地回滚</button>
-                                            <button @click="updateComp(mosdns)" :disabled="isUpdating[mosdns]" class="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm hover:bg-blue-200 disabled:opacity-50"><i v-if="isUpdating[mosdns]" class="fas fa-spinner fa-spin mr-1"></i>拉取最新</button>
+                                            <button @click="updateComp('rollback_mosdns')" :disabled="isUpdating['rollback_mosdns']" class="bg-gray-100 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-200 disabled:opacity-50" title="回滚到上一次安装的版本"><i v-if="isUpdating['rollback_mosdns']" class="fas fa-spinner fa-spin mr-1"></i>本地回滚</button>
+                                            <button @click="updateComp('mosdns')" :disabled="isUpdating['mosdns']" class="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm hover:bg-blue-200 disabled:opacity-50"><i v-if="isUpdating['mosdns']" class="fas fa-spinner fa-spin mr-1"></i>拉取最新</button>
                                         </div>
                                     </div>
                                     <div class="flex justify-between items-center pt-2 mt-2 border-t">
