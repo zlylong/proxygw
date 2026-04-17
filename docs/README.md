@@ -10,6 +10,9 @@
 
 ProxyGW 是一款基于原生 Debian 12 / 13 的透明代理管理系统，它整合了 Xray-core、Mosdns v5、FRR (OSPF) 以及 nftables (TProxy)，提供了现代化的 Web UI 进行全自动化配置与网络路由管理。
 
+
+![ProxyGW Dashboard](assets/dashboard.jpg)
+
 ### 架构特性
 
 - **Native Linux**：纯物理机/虚拟机架构，深度融合 Linux 网络栈，严禁引入 Docker 等虚拟化容器影响性能。
