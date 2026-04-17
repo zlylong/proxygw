@@ -16,7 +16,7 @@ ProxyGW 是一个高性能、易于使用的透明代理网关系统。它提供
 
 ## 🚀 快速安装
 
-推荐在全新安装的 Debian 12 / 13 服务器上使用 root 用户执行以下命令进行一键部署：
+推荐在全新安装的 Debian 13 或 Ubuntu 24.04 服务器上使用 root 用户执行以下命令进行一键部署：
 
 ```bash
 git clone https://github.com/zlylong/proxygw.git /root/proxygw
