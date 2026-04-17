@@ -141,6 +141,9 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
+		if req.Mode != "C" {
+			db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
+		}
 		if req.Mode == "A" {
 			exec.Command("systemctl", "start", "nftables").Run()
 			exec.Command("systemctl", "stop", "frr").Run()

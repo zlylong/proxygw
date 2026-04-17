@@ -241,6 +241,9 @@ func ospfController() {
 			log.Printf("[WARN] SELECT value FROM settings WHERE key='mode' err: %v", err)
 		}
 		if mode != "C" {
+			db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
+		}
+		if mode != "C" {
 			continue
 		}
 
