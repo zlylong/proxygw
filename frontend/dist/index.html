@@ -235,6 +235,257 @@
                     </div>
 
                     <!-- Rules -->
+                    
+                    <div v-else-if="activeTab === 'remote_nodes'" key="remote_nodes">
+                        <div class="flex justify-between mb-4">
+                            <h2 class="text-xl font-bold">远程节点部署与分享</h2>
+                                                        <div class="space-x-2">
+                                <button @click="showBatchModal = true" class="bg-indigo-600 text-white px-4 py-2 rounded shadow hover:bg-indigo-700 transition">
+                                    <i class="fa-solid fa-layer-group mr-1"></i> 批量导入
+                                </button>
+                                <button @click="openAddRemoteNode" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition">
+                                    <i class="fa-solid fa-plus mr-1"></i> 新增部署
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- 节点列表 -->
+                        <div class="bg-white rounded-lg shadow overflow-hidden">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-100 border-b">
+                                        <th class="p-3">名称/地区</th>
+                                        <th class="p-3">协议类型</th>
+                                        <th class="p-3">主机地址</th>
+                                        <th class="p-3">状态</th>
+                                        <th class="p-3">创建时间</th>
+                                        <th class="p-3 text-right">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="node in remoteNodes" :key="node.id" class="border-b hover:bg-gray-50">
+                                        <td class="p-3">
+                                            <div class="font-medium">{{ node.name }}</div>
+                                            <span class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{{ node.region }}</span>
+                                        </td>
+                                        <td class="p-3">
+                                            <span class="px-2 py-1 text-xs rounded-full font-medium" :class="node.type === 'wg' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'">
+                                                {{ node.type.toUpperCase() }}
+                                            </span>
+                                        </td>
+                                        <td class="p-3 font-mono text-sm">{{ node.ssh_host }}</td>
+                                        <td class="p-3">
+                                            <span class="px-2 py-1 text-xs rounded-full" 
+                                                  :class="{'bg-green-100 text-green-700': node.status==='Online', 'bg-yellow-100 text-yellow-700': node.status==='Deploying', 'bg-red-100 text-red-700': node.status==='Offline' || node.status==='Failed', 'bg-gray-100 text-gray-700': !node.status}">
+                                                <i class="fa-solid mr-1" :class="{'fa-circle-check': node.status==='Online', 'fa-spinner fa-spin': node.status==='Deploying', 'fa-circle-xmark': node.status==='Offline' || node.status==='Failed'}"></i>
+                                                {{ node.status || 'Unknown' }}
+                                            </span>
+                                        </td>
+                                        <td class="p-3 text-sm text-gray-500">{{ node.created_at ? node.created_at.substring(0, 19).replace('T', ' ') : '-' }}</td>
+                                        <td class="p-3 text-right space-x-2">
+                                            <button @click="viewRemoteNode(node.id)" class="text-blue-500 hover:text-blue-700"><i class="fa-solid fa-eye" title="查看配置"></i></button>
+                                            <button @click="checkRemoteNode(node.id)" class="text-green-500 hover:text-green-700"><i class="fa-solid fa-rotate" title="健康检查"></i></button>
+                                            <button @click="confirmDeleteRemoteNode(node.id)" class="text-red-500 hover:text-red-700"><i class="fa-solid fa-trash" title="删除"></i></button>
+                                        </td>
+                                    </tr>
+                                    <tr v-if="remoteNodes.length === 0">
+                                        <td colspan="6" class="p-8 text-center text-gray-500">暂无远程节点，请点击右上角新增部署。</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        
+                        <!-- 批量导入 Modal -->
+                        <div v-if="showBatchModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                                <div class="px-6 py-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                    <h3 class="text-lg font-bold">批量导入部署远程节点</h3>
+                                    <button @click="showBatchModal = false" class="text-gray-400 hover:text-gray-600"><i class="fa-solid fa-xmark fa-lg"></i></button>
+                                </div>
+                                <div class="p-6 space-y-4">
+                                    <div class="bg-blue-50 text-blue-700 p-3 rounded text-sm">
+                                        请每行粘贴一个节点信息，用英文逗号分隔。<br>
+                                        格式：<strong>名称,类型(wg/vless),IP,端口,用户名,认证(password/key),凭据(密码或私钥),地区</strong>
+                                    </div>
+                                    <textarea v-model="batchText" class="w-full border p-2 rounded font-mono text-sm" rows="10" placeholder="Example-1,vless,1.1.1.1,22,root,password,MySecret,HK
+Example-2,wg,2.2.2.2,22,root,password,MySecret,JP"></textarea>
+                                </div>
+                                <div class="px-6 py-4 border-t bg-gray-50 flex justify-end space-x-3 rounded-b-lg">
+                                    <button @click="showBatchModal = false" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 transition">取消</button>
+                                    <button @click="submitBatchNodes" :disabled="isDeploying" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition flex items-center">
+                                        <i v-if="isDeploying" class="fa-solid fa-spinner fa-spin mr-2"></i> {{ isDeploying ? '正在提交...' : '批量下发部署' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- 部署表单 Modal -->
+                        <div v-if="showRemoteNodeModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                                <div class="px-6 py-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                    <h3 class="text-lg font-bold">新建远程节点部署</h3>
+                                    <button @click="showRemoteNodeModal = false" class="text-gray-400 hover:text-gray-600"><i class="fa-solid fa-xmark fa-lg"></i></button>
+                                </div>
+                                <div class="p-6 space-y-4">
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">节点名称</label>
+                                            <input v-model="remoteNodeForm.name" type="text" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="例如: JP-Tokyo-01">
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">协议类型</label>
+                                            <select v-model="remoteNodeForm.type" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500">
+                                                <option value="vless">VLESS + REALITY</option>
+                                                <option value="wg">WireGuard</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">地区标签</label>
+                                            <input v-model="remoteNodeForm.region" type="text" class="w-full border p-2 rounded" placeholder="例如: 日本 / JP">
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">备注</label>
+                                            <input v-model="remoteNodeForm.remark" type="text" class="w-full border p-2 rounded" placeholder="可选备注">
+                                        </div>
+                                    </div>
+                                    <div class="border-t pt-4">
+                                        <h4 class="font-medium text-gray-700 mb-2">SSH 连接信息 (部署完成后将脱敏处理)</h4>
+                                        <div class="grid grid-cols-4 gap-4 mb-4">
+                                            <div class="col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">服务器 IP/域名</label>
+                                                <input v-model="remoteNodeForm.ssh_host" type="text" class="w-full border p-2 rounded font-mono" placeholder="192.168.x.x">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">端口</label>
+                                                <input v-model.number="remoteNodeForm.ssh_port" type="number" class="w-full border p-2 rounded font-mono">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+                                                <input v-model="remoteNodeForm.ssh_user" type="text" class="w-full border p-2 rounded font-mono" placeholder="root">
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-4 gap-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">认证方式</label>
+                                                <select v-model="remoteNodeForm.ssh_auth_type" class="w-full border p-2 rounded">
+                                                    <option value="password">密码</option>
+                                                    <option value="key">私钥</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-span-3">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">密码 / 私钥内容</label>
+                                                <input v-if="remoteNodeForm.ssh_auth_type === 'password'" v-model="remoteNodeForm.ssh_credential" type="password" class="w-full border p-2 rounded font-mono" placeholder="SSH登录密码">
+                                                <textarea v-else v-model="remoteNodeForm.ssh_credential" class="w-full border p-2 rounded font-mono text-sm" rows="3" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----..."></textarea>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="px-6 py-4 border-t bg-gray-50 flex justify-end space-x-3 rounded-b-lg">
+                                    <button @click="showRemoteNodeModal = false" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 transition">取消</button>
+                                    <button @click="submitRemoteNode" :disabled="isDeploying" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition flex items-center">
+                                        <i v-if="isDeploying" class="fa-solid fa-spinner fa-spin mr-2"></i> {{ isDeploying ? '正在开始部署...' : '开始自动部署' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        
+                        <!-- 历史记录回退 Modal -->
+                        <div v-if="showHistoryModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
+                            <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[80vh] flex flex-col">
+                                <div class="px-6 py-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                    <h3 class="text-lg font-bold">历史参数版本</h3>
+                                    <button @click="showHistoryModal = false" class="text-gray-400 hover:text-gray-600"><i class="fa-solid fa-xmark fa-lg"></i></button>
+                                </div>
+                                <div class="p-6 overflow-y-auto flex-1">
+                                    <div v-if="nodeHistory.length === 0" class="text-gray-500 text-center py-4">暂无历史参数修改记录</div>
+                                    <div v-for="h in nodeHistory" :key="h.id" class="mb-4 border rounded p-4 relative bg-gray-50">
+                                        <div class="text-sm text-gray-500 mb-2 font-bold">参数作废时间: {{ h.created_at.substring(0, 19).replace('T', ' ') }}</div>
+                                        <pre class="text-xs text-gray-700 overflow-x-auto bg-gray-200 p-2 rounded">{{ h.params }}</pre>
+                                        <button @click="rollbackNode(selectedRemoteNode.id, h.id)" class="absolute top-4 right-4 bg-red-600 text-white px-3 py-1 rounded text-xs hover:bg-red-700 transition">
+                                            <i class="fa-solid fa-backward-step mr-1"></i> 强行恢复此版本并下发
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- 节点详情/配置展示 Modal -->
+                        <div v-if="showRemoteDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+                                <div class="px-6 py-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                    <h3 class="text-lg font-bold">节点配置详情 - {{ selectedRemoteNode?.name }}</h3>
+                                    <button @click="showRemoteDetailsModal = false" class="text-gray-400 hover:text-gray-600"><i class="fa-solid fa-xmark fa-lg"></i></button>
+                                </div>
+                                <div class="p-6 overflow-y-auto flex-1 space-y-4" v-if="selectedRemoteNode">
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div><span class="text-gray-500 mr-2">类型:</span><span class="font-medium">{{ selectedRemoteNode.type.toUpperCase() }}</span></div>
+                                        <div><span class="text-gray-500 mr-2">IP地址:</span><span class="font-mono">{{ selectedRemoteNode.ssh_host }}</span></div>
+                                        <div><span class="text-gray-500 mr-2">状态:</span>
+                                            <span class="px-2 py-0.5 text-xs rounded-full" 
+                                                  :class="{'bg-green-100 text-green-700': selectedRemoteNode.status==='Online', 'bg-yellow-100 text-yellow-700': selectedRemoteNode.status==='Deploying', 'bg-red-100 text-red-700': selectedRemoteNode.status==='Offline' || selectedRemoteNode.status==='Failed'}">
+                                                {{ selectedRemoteNode.status }}
+                                            </span>
+                                        </div>
+                                        
+                                        <div><span class="text-gray-500 mr-2">监听端口:</span><span class="font-mono">{{ selectedRemoteNode.ssh_port }}</span></div>
+                                    </div>
+                                    <div class="mt-2">
+                                        <button @click="regenerateNode(selectedRemoteNode.id)" class="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1.5 rounded text-sm transition">
+                                            <i class="fa-solid fa-rotate mr-1"></i> 重新生成参数 (当前分享链接将作废)
+                                        </button>
+                                        <button @click="loadNodeHistory(selectedRemoteNode.id)" class="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded text-sm transition ml-2">
+                                            <i class="fa-solid fa-clock-rotate-left mr-1"></i> 查看历史回退版本
+                                        </button>
+                                    </div>
+                                    
+                                    <hr class="my-4">
+                                    
+                                    <div v-if="selectedRemoteNode.type === 'vless' && selectedRemoteNode.vless">
+                                        <h4 class="font-bold mb-3 flex items-center"><i class="fa-solid fa-link text-blue-500 mr-2"></i> 分享链接</h4>
+                                        <div class="bg-gray-100 p-3 rounded font-mono text-sm break-all flex items-center justify-between">
+                                            <span>{{ selectedRemoteNode.vless.share_link }}</span>
+                                            <button @click="copyText(selectedRemoteNode.vless.share_link)" class="ml-4 text-gray-500 hover:text-blue-600 shrink-0" title="复制"><i class="fa-regular fa-copy"></i></button>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-4 mt-4 text-sm">
+                                            <div><span class="text-gray-500">UUID:</span> <span class="font-mono">{{ selectedRemoteNode.vless.uuid }}</span></div>
+                                            <div><span class="text-gray-500">ShortId:</span> <span class="font-mono">{{ selectedRemoteNode.vless.short_id }}</span></div>
+                                            <div><span class="text-gray-500">SNI / ServerName:</span> <span class="font-mono">{{ selectedRemoteNode.vless.server_name }}</span></div>
+                                            <div><span class="text-gray-500">Reality PubKey:</span> <span class="font-mono text-xs">{{ selectedRemoteNode.vless.reality_pub.substring(0,20) }}...</span></div>
+                                        </div>
+                                    </div>
+
+                                    <div v-if="selectedRemoteNode.type === 'wg' && selectedRemoteNode.wg">
+                                        <h4 class="font-bold mb-3 flex items-center"><i class="fa-solid fa-file-code text-purple-500 mr-2"></i> 客户端配置 (wg0.conf)</h4>
+                                        <div class="relative">
+                                            <pre class="bg-gray-800 text-green-400 p-4 rounded-lg font-mono text-sm overflow-x-auto whitespace-pre">
+[Interface]
+PrivateKey = {{ selectedRemoteNode.wg.client_priv }}
+Address = {{ selectedRemoteNode.wg.client_addr }}
+DNS = 8.8.8.8
+
+[Peer]
+PublicKey = {{ selectedRemoteNode.wg.server_pub }}
+Endpoint = {{ selectedRemoteNode.wg.endpoint }}
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 25
+</pre>
+                                            <button @click="copyText('[Interface]\nPrivateKey = ' + selectedRemoteNode.wg.client_priv + '\nAddress = ' + selectedRemoteNode.wg.client_addr + '\nDNS = 8.8.8.8\n\n[Peer]\nPublicKey = ' + selectedRemoteNode.wg.server_pub + '\nEndpoint = ' + selectedRemoteNode.wg.endpoint + '\nAllowedIPs = 0.0.0.0/0\nPersistentKeepalive = 25')"" class="absolute top-2 right-2 text-gray-400 hover:text-white" title="复制"><i class="fa-regular fa-copy"></i></button>
+                                        </div>
+                                    </div>
+                                    
+                                </div>
+                                <div class="px-6 py-4 border-t bg-gray-50 flex justify-between rounded-b-lg">
+                                    <button @click="importToLocal(selectedRemoteNode)" v-if="selectedRemoteNode && selectedRemoteNode.type === 'vless'" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition">
+                                        <i class="fa-solid fa-arrow-down mr-1"></i> 导入至网关节点列表
+                                    </button>
+                                    <button v-else class="invisible"></button>
+                                    <button @click="showRemoteDetailsModal = false" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 transition">关闭</button>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
                     <div v-else-if="activeTab === 'rules'" key="rules">
                         
                         <div class="bg-white p-4 rounded-lg shadow mb-4 flex items-end space-x-4">
@@ -850,6 +1101,7 @@ const showRollbackModal = ref(false);
                 const tabs = [
                     { id: 'system', icon: 'fa-gauge', label: '系统与更新' },
                     { id: 'nodes', icon: 'fa-server', label: '节点管理' },
+                    { id: 'remote_nodes', icon: 'fa-cloud-arrow-up', label: '节点自动部署' },
                     { id: 'rules', icon: 'fa-shield-halved', label: '路由分流规则' },
                     { id: 'dns', icon: 'fa-globe', label: 'DNS 与上游' },
                     { id: 'ospf', icon: 'fa-route', label: 'OSPF 状态' },
@@ -882,6 +1134,164 @@ const showRollbackModal = ref(false);
                 };
 
                 let initLoaded = false;
+                
+                // Remote Deploy Logic
+                const isDeploying = ref(false);
+                const remoteNodes = ref([]);
+                const showRemoteNodeModal = ref(false);
+                const showRemoteDetailsModal = ref(false);
+                const selectedRemoteNode = ref(null);
+                const remoteNodeForm = ref({
+                    name: '', type: 'vless', ssh_host: '', ssh_port: 22, ssh_user: 'root',
+                    ssh_auth_type: 'password', ssh_credential: '', region: '', remark: ''
+                });
+
+                
+                const showBatchModal = ref(false);
+                const batchText = ref('');
+                const showHistoryModal = ref(false);
+                const nodeHistory = ref([]);
+
+                const submitBatchNodes = async () => {
+                    const lines = batchText.value.split('\n');
+                    const reqs = [];
+                    for (let line of lines) {
+                        if (!line.trim()) continue;
+                        const p = line.split(',');
+                        if (p.length >= 7) {
+                            reqs.push({
+                                name: p[0], type: p[1], ssh_host: p[2], ssh_port: parseInt(p[3]),
+                                ssh_user: p[4], ssh_auth_type: p[5], ssh_credential: p[6], region: p[7] || '', remark: ''
+                            });
+                        }
+                    }
+                    if (reqs.length === 0) return showToast('未解析到有效数据', 'error');
+
+                    isDeploying.value = true;
+                    try {
+                        const res = await apiFetch('/api/remote_nodes/batch', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(reqs)
+                        });
+                        const data = await res.json();
+                        if(data.success) {
+                            showToast('批量部署已提交，后台执行中');
+                            showBatchModal.value = false;
+                            batchText.value = '';
+                            loadRemoteNodes();
+                        } else showToast(data.error || '提交失败', 'error');
+                    } catch(e) {
+                        showToast('网络错误', 'error');
+                    } finally { isDeploying.value = false; }
+                };
+
+                const regenerateNode = async (id) => {
+                    if(!confirm('该操作将重新生成所有证书密钥并更换监听端口，当前使用的客户端分享链接将立刻断开失效。确认执行？')) return;
+                    await apiFetch('/api/remote_nodes/' + id + '/regenerate', { method: 'POST' });
+                    showToast('重新生成任务已下发');
+                    showRemoteDetailsModal.value = false;
+                    loadRemoteNodes();
+                };
+
+                const loadNodeHistory = async (id) => {
+                    const res = await apiFetch('/api/remote_nodes/' + id + '/history');
+                    nodeHistory.value = await res.json();
+                    showHistoryModal.value = true;
+                };
+
+                const rollbackNode = async (nodeId, historyId) => {
+                    if(!confirm('确定将远端服务器强行回退至该历史版本的参数和端口吗？')) return;
+                    await apiFetch('/api/remote_nodes/' + nodeId + '/rollback', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ history_id: historyId })
+                    });
+                    showToast('回退任务已下发，正在还原远端服务器');
+                    showHistoryModal.value = false;
+                    showRemoteDetailsModal.value = false;
+                    loadRemoteNodes();
+                };
+
+                const loadRemoteNodes = async () => {
+                    apiFetch('/api/remote_nodes').then(r=>r.json()).then(d => remoteNodes.value = d || []);
+                };
+
+                const openAddRemoteNode = () => {
+                    remoteNodeForm.value = {
+                        name: '', type: 'vless', ssh_host: '', ssh_port: 22, ssh_user: 'root',
+                        ssh_auth_type: 'password', ssh_credential: '', region: '', remark: ''
+                    };
+                    showRemoteNodeModal.value = true;
+                };
+
+                const submitRemoteNode = async () => {
+                    isDeploying.value = true;
+                    try {
+                        const res = await apiFetch('/api/remote_nodes', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(remoteNodeForm.value)
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            showToast('节点部署任务已提交，后台部署中...');
+                            showRemoteNodeModal.value = false;
+                            loadRemoteNodes();
+                        } else {
+                            showToast(data.error || '提交失败', 'error');
+                        }
+                    } catch (e) {
+                        showToast('网络错误', 'error');
+                    } finally {
+                        isDeploying.value = false;
+                    }
+                };
+
+                const viewRemoteNode = async (id) => {
+                    const res = await apiFetch('/api/remote_nodes/' + id);
+                    const data = await res.json();
+                    if(data.id) {
+                        selectedRemoteNode.value = data;
+                        showRemoteDetailsModal.value = true;
+                    } else {
+                        showToast('无法获取详情', 'error');
+                    }
+                };
+
+                const checkRemoteNode = async (id) => {
+                    showToast('正在执行健康检查...');
+                    const res = await apiFetch('/api/remote_nodes/' + id + '/check', { method: 'POST' });
+                    const data = await res.json();
+                    if(data.success) {
+                        showToast('节点状态正常: ' + data.status);
+                    } else {
+                        showToast('节点异常: ' + data.reason, 'error');
+                    }
+                    loadRemoteNodes();
+                };
+
+                const confirmDeleteRemoteNode = async (id) => {
+                    if(confirm('确定要删除此节点的部署记录和相关参数吗？(这不会卸载远端服务器上的程序)')) {
+                        await apiFetch('/api/remote_nodes/' + id, { method: 'DELETE' });
+                        showToast('节点记录已删除');
+                        loadRemoteNodes();
+                    }
+                };
+
+                const copyText = (text) => {
+                    navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板'));
+                };
+                
+                const importToLocal = async (node) => {
+                    if (node && node.type === 'vless' && node.vless) {
+                        importNodeUrl.value = node.vless.share_link;
+                        activeTab.value = 'nodes';
+                        showRemoteDetailsModal.value = false;
+                        showToast('请在此粘贴刚才的分享链接并点击导入');
+                    }
+                };
+
                 const loadData = async (isInit = false) => {
                     if (token.value) apiFetch('/api/status').then(r=>r.json()).then(d => sysStatus.value = d);
                     if (token.value && (isInit === true || !initLoaded)) {
@@ -890,6 +1300,7 @@ const showRollbackModal = ref(false);
                         initLoaded = true;
                     }
                     if(token.value && activeTab.value === 'nodes') apiFetch('/api/nodes').then(r=>r.json()).then(d => nodes.value = d);
+                    if(token.value && activeTab.value === 'remote_nodes') loadRemoteNodes();
                     if(token.value && activeTab.value === 'rules') { apiFetch('/api/rules').then(r=>r.json()).then(d => rules.value = d); if(categories.value.geosite.length===0) apiFetch('/api/rules/categories').then(r=>r.json()).then(d => categories.value = d); }
                     if(token.value && activeTab.value === 'ospf') apiFetch('/api/ospf').then(r=>r.json()).then(d => ospf.value = d);
                     if(token.value && (activeTab.value === 'xray_config' || activeTab.value === 'mosdns_config')) loadConfigs();
@@ -971,7 +1382,7 @@ Mode B: 旁路由发布 (OSPF)`)) {
 
                                 return {
                     importFromLink, loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback };
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>
