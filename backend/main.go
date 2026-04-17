@@ -122,10 +122,6 @@ func initDB() {
 	db, err = sql.Open("sqlite3", getPath("config", "proxygw.db"))
 	if err != nil {
 		log.Fatal(err)
-
-		// Enable WAL mode for high concurrency
-		db.Exec("PRAGMA journal_mode=WAL;")
-		db.Exec("PRAGMA synchronous=NORMAL;")
 	}
 
 	// Enable WAL mode for high concurrency
@@ -417,6 +413,10 @@ func formatUpstreams(addrs string, useSocks bool) string {
 
 func applyMosdnsConfig() error {
 	var local, remote, lazyStr string
+
+	db.QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local)
+	db.QueryRow("SELECT value FROM settings WHERE key='dns_remote'").Scan(&remote)
+	db.QueryRow("SELECT value FROM settings WHERE key='dns_lazy'").Scan(&lazyStr)
 
 	var proxyDomains []string
 	dRows, err := db.Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")

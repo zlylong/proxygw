@@ -1,5 +1,12 @@
 # ProxyGW Changelog
 
+## 2026-04-17 (v1.4.0-rc.3: Security & Stability Audit Fixes)
+
+### Fixed
+- **DNS Configuration Regression**: 修复了 `applyMosdnsConfig()` 遗漏读取数据库的问题，现在用户在面板保存的 `dns_local`, `dns_remote`, `dns_lazy` 配置可以正确下发并真正生效至 Mosdns 引擎。
+- **SSH Security (MITM)**: 强化远程节点部署架构。移除了高危的 `InsecureIgnoreHostKey()`，引入了基于 `known_hosts` 的 TOFU (Trust On First Use) 机制，现在服务端能有效抵御针对部署链路的中间人劫持攻击。
+- **Code Quality**: 移除了 `main.go` 中紧随 `log.Fatal` 的多余数据库 PRAGMA 写入死代码，提升代码健壮性。
+
 ## 2026-04-17 (v1.4.0-rc.2: Pre-release & Security Audit Fixes)
 
 ### Added
