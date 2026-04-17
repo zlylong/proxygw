@@ -38,3 +38,13 @@ cat /root/proxygw/config/bootstrap_password.txt
 - 🛠️ [开发者与架构指南](./docs/DEVELOPER.md) - 深入系统底层架构、源码结构、Fake-IP 零延迟原理与内核级调优。
 - ⚙️ [运维与故障排查](./docs/OPERATIONS.md) - 系统管理员的服务管理、脚本升级、系统卸载与常见故障排除手册。
 - 🔌 [后端 API 接口参考](./docs/API.md) - 面向开发者的 RESTful API 接口说明。
+
+
+## 🙏 致谢 (Acknowledgments)
+
+本项目底层的核心网络代理与 DNS 解析分流能力，离不开以下优秀的开源项目，特此致谢：
+
+- [XTLS/Xray-core](https://github.com/XTLS/Xray-core) - 提供了极其强大且高性能的透明代理与协议卸载能力。
+- [IrineSistiana/mosdns](https://github.com/IrineSistiana/mosdns) - 提供了灵活且高效的 DNS 转发、GeoIP 分流与防泄漏解析引擎。
+
+感谢所有开源贡献者为构建更自由、开放的网络环境所做出的无私奉献！
