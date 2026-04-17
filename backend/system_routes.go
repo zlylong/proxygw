@@ -151,6 +151,7 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			exec.Command("systemctl", "start", "nftables").Run()
 			exec.Command("systemctl", "start", "frr").Run()
 		}
+		syncFRRConfig()
 		if err := applyMosdnsConfig(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Mosdns failed: " + err.Error()})
 			return

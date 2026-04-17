@@ -723,12 +723,13 @@ func getPrimarySubnet(ipStr string) string {
 }
 
 func syncFRRConfig() {
-
 	var mode string
 	if db != nil {
 		db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
 	}
+
 	if mode == "A" || mode == "" {
+		exec.Command("vtysh", "-c", "conf t", "-c", "no route-map OSPF-EXPORT permit 10").Run()
 		exec.Command("systemctl", "stop", "frr").Run()
 		return
 	}
@@ -748,10 +749,14 @@ func syncFRRConfig() {
 	var newContent string
 	if mode == "B" {
 		newContent = fmt.Sprintf(`! FRR OSPF Config (Generated)
+ip route 198.18.0.0/16 127.0.0.1 tag 100
 router ospf
  ospf router-id %s
+ redistribute static route-map OSPF-EXPORT
  network %s area 0
- network 198.18.0.0/16 area 0
+!
+route-map OSPF-EXPORT permit 10
+ match tag 100
 !`, ip, subnet)
 	} else if mode == "C" {
 		newContent = fmt.Sprintf(`! FRR OSPF Config (Generated)
@@ -766,9 +771,9 @@ route-map OSPF-EXPORT permit 10
 	}
 
 	b, _ := os.ReadFile("/etc/frr/frr.conf")
-	content := string(b)
+	content_frr := string(b)
 
-	if newContent != content {
+	if newContent != content_frr {
 		log.Printf("[OSPF] Auto-updating FRR config: mode=%s, router-id=%s, network=%s", mode, ip, subnet)
 		os.WriteFile(getPath("core", "frr", "frr.conf"), []byte(newContent), 0644)
 		os.WriteFile("/etc/frr/frr.conf", []byte(newContent), 0644)
