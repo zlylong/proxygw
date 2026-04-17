@@ -778,6 +778,7 @@ func main() {
 	syncFRRConfig()
 	go ospfController()
 	go cronUpdater()
+	applyMosdnsConfig()
 	applyXrayConfig()
 
 	exec.Command("ip", "rule", "add", "fwmark", "1", "lookup", "100").Run()

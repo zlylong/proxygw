@@ -7,12 +7,12 @@ func renderMosdnsConfig(local, remote string, lazy bool, mode string) string {
 	lazyExec := ""
 	if lazy {
 		lazyCache = "  - tag: lazy_cache\n    type: cache\n    args: { size: 10240, lazy_cache_ttl: 86400 }\n"
-		lazyExec = "      - exec: \n      - matches: [ has_resp ]\n        exec: return\n"
+		lazyExec = "      - exec: $lazy_cache\n      - matches: [ has_resp ]\n        exec: return\n"
 	}
 
-	proxyDomainExec := "exec: "
+	proxyDomainExec := "exec: $forward_fakeip"
 	if mode == "C" {
-		proxyDomainExec = "exec: "
+		proxyDomainExec = "exec: $forward_remote"
 	}
 
 	configStr := `log:
@@ -42,15 +42,15 @@ plugins:
   - tag: main_sequence
     type: sequence
     args:
-%s      - matches: [ qname  ]
+%s      - matches: [ qname $proxy_domain ]
         %s
       - matches: [ has_resp ]
         exec: return
-      - matches: [ qname  ]
-        exec: 
+      - matches: [ qname $geosite_cn ]
+        exec: $forward_local
       - matches: [ has_resp ]
         exec: return
-      - exec: 
+      - exec: $forward_remote
   - tag: udp_server
     type: udp_server
     args:
