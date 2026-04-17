@@ -133,8 +133,8 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			return
 		}
 		req.Mode = strings.TrimSpace(req.Mode)
-		if req.Mode != "A" && req.Mode != "B" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "mode must be A or B"})
+		if req.Mode != "A" && req.Mode != "B" && req.Mode != "C" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "mode must be A, B, or C"})
 			return
 		}
 		if _, err := db.Exec("UPDATE settings SET value=? WHERE key='mode'", req.Mode); err != nil {

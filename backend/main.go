@@ -174,6 +174,8 @@ func initDB() {
 		db.Exec("INSERT INTO rules (type, value, policy) VALUES ('geolocation', '!cn', 'proxy')")
 	}
 
+	db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
+
 	ensurePasswordInitialized()
 }
 
@@ -238,7 +240,7 @@ func ospfController() {
 		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil && err != sql.ErrNoRows {
 			log.Printf("[WARN] SELECT value FROM settings WHERE key='mode' err: %v", err)
 		}
-		if mode != "B" {
+		if mode != "C" {
 			continue
 		}
 
@@ -442,7 +444,9 @@ func applyMosdnsConfig() error {
 	}
 	os.WriteFile(getPath("core", "mosdns", "proxy_domains.txt"), []byte(strings.Join(proxyDomains, "\n")), 0644)
 
-	config := renderMosdnsConfig(local, remote, lazyStr == "true")
+	var mode string
+	db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
+	config := renderMosdnsConfig(local, remote, lazyStr == "true", mode)
 
 	os.WriteFile(getPath("core", "mosdns", "config.yaml"), []byte(config), 0644)
 	err = exec.Command("systemctl", "restart", "mosdns").Run()
@@ -714,6 +718,16 @@ func getPrimarySubnet(ipStr string) string {
 }
 
 func syncFRRConfig() {
+
+	var mode string
+	if db != nil {
+		db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
+	}
+	if mode == "A" || mode == "" {
+		exec.Command("systemctl", "stop", "frr").Run()
+		return
+	}
+
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
 		return
@@ -726,32 +740,42 @@ func syncFRRConfig() {
 		return
 	}
 
-	newContent := fmt.Sprintf(`! FRR OSPF Config (Generated)
+	var newContent string
+	if mode == "B" {
+		newContent = fmt.Sprintf(`! FRR OSPF Config (Generated)
+router ospf
+ ospf router-id %s
+ network %s area 0
+ network 198.18.0.0/16 area 0
+!`, ip, subnet)
+	} else if mode == "C" {
+		newContent = fmt.Sprintf(`! FRR OSPF Config (Generated)
 router ospf
  ospf router-id %s
  redistribute static route-map OSPF-EXPORT
  network %s area 0
- network 198.18.0.0/16 area 0
 !
 route-map OSPF-EXPORT permit 10
  match tag 100
 !`, ip, subnet)
+	}
 
 	b, _ := os.ReadFile("/etc/frr/frr.conf")
 	content := string(b)
 
 	if newContent != content {
-		log.Printf("[OSPF] Auto-updating FRR config: router-id=%s, network=%s", ip, subnet)
+		log.Printf("[OSPF] Auto-updating FRR config: mode=%s, router-id=%s, network=%s", mode, ip, subnet)
 		os.WriteFile(getPath("core", "frr", "frr.conf"), []byte(newContent), 0644)
 		os.WriteFile("/etc/frr/frr.conf", []byte(newContent), 0644)
 		exec.Command("sed", "-i", "s/ospfd=no/ospfd=yes/", "/etc/frr/daemons").Run()
 		exec.Command("systemctl", "restart", "frr").Run()
+		db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
 	}
 }
 
 func main() {
-	syncFRRConfig()
 	initDB()
+	syncFRRConfig()
 	go ospfController()
 	go cronUpdater()
 	applyXrayConfig()

@@ -167,7 +167,11 @@
                     <span class="text-sm font-bold border rounded px-2 py-1" :class="sysStatus.mode==='A' ? 'bg-purple-100 text-purple-800' : 'bg-orange-100 text-orange-800'">
                         当前模式: {{ sysStatus.mode === 'A' ? 'Mode A (全局网关 TProxy)' : 'Mode B (OSPF 动态发布)' }}
                     </span>
-                    <button @click="toggleMode" class="bg-gray-200 text-gray-700 text-sm px-3 py-1 rounded hover:bg-gray-300 shadow"><i class="fa-solid fa-exchange mr-1"></i>切换模式</button>
+                    <select :value="sysStatus.mode" @change="changeMode($event.target.value)" class="bg-gray-200 text-gray-700 text-sm px-2 py-1 rounded border-none shadow focus:ring-0 outline-none cursor-pointer">
+                        <option value="A">Mode A (全局网关)</option>
+                        <option value="B">Mode B (纯Fake-IP)</option>
+                        <option value="C">Mode C (纯OSPF)</option>
+                    </select>
                     <button @click="applyConfig" class="bg-indigo-600 text-white text-sm px-3 py-1 rounded hover:bg-indigo-700 shadow"><i class="fa-solid fa-check mr-1"></i>应用配置 (Xray重启)</button>
                     
                     <span class="flex items-center text-sm text-gray-500 ml-4">
@@ -1195,6 +1199,19 @@ const showRollbackModal = ref(false);
                     setTimeout(() => { isUpdating.value['apply'] = false; loadData(); }, 1500);
                 };
 
+                const changeMode = async (newMode) => {
+                    const descriptions = {
+                        'A': 'Mode A: 全局网关劫持 (适合普通路由)',
+                        'B': 'Mode B: 纯 Fake-IP 模式 (零延迟，免疫环路，OSPF只推送Fake-IP池)',
+                        'C': 'Mode C: 纯 OSPF 模式 (需防环路，OSPF推送所有海外IP)'
+                    };
+                    if(confirm(`确定切换至 ${descriptions[newMode]}？`)) {
+                        await apiFetch('/api/mode', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
+                        loadData();
+                    } else {
+                        loadData(); // Reset select UI
+                    }
+                }
                 const toggleMode = async () => {
                     const newMode = sysStatus.value.mode === 'A' ? 'B' : 'A';
                     if(confirm(`切换到 Mode ${newMode}？
@@ -1261,7 +1278,7 @@ Mode B: 旁路由发布 (OSPF)`)) {
 
                                 return {
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>
