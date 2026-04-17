@@ -825,7 +825,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
 
                 const showMosdnsRollbackModal = ref(false);
                 const mosdnsVersions = ref([]);
-                const selectedMosdnsRollbackVersion = ref();
+                const selectedMosdnsRollbackVersion = ref('');
 
                 const openMosdnsRollbackModal = () => {
                     showMosdnsRollbackModal.value = true;
@@ -834,7 +834,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
 
                 const fetchMosdnsVersions = async () => {
                     try {
-                        const res = await apiFetch(/api/mosdns/versions);
+                        const res = await apiFetch('/api/mosdns/versions');
                         if (res.ok) {
                             const data = await res.json();
                             if (data.versions) {
@@ -849,26 +849,26 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
 
                 const confirmMosdnsRollback = async () => {
                     if (!selectedMosdnsRollbackVersion.value) return;
-                    isUpdating.value[rollback_mosdns_specific] = true;
+                    isUpdating.value['rollback_mosdns_specific'] = true;
                     showToast("Mosdns 安装任务已触发，请稍候...", "success");
                     try {
-                        const res = await apiFetch(/api/update/mosdns, {
-                            method: POST,
-                            headers: {Content-Type: application/json},
+                        const res = await apiFetch('/api/update/mosdns', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({ version: selectedMosdnsRollbackVersion.value })
                         });
                         if (res.ok) {
-                            showToast(Mosdns 指定版本安装成功！);
+                            showToast('Mosdns 指定版本安装成功！');
                             showMosdnsRollbackModal.value = false;
                             loadData();
                         } else {
                             const data = await res.json().catch(()=>({}));
-                            showToast(安装失败:  + (data.error || 未知错误), error);
+                            showToast('安装失败: ' + (data.error || '未知错误'), 'error');
                         }
                     } catch (e) {
-                        showToast(安装出错, error);
+                        showToast('安装出错', 'error');
                     }
-                    isUpdating.value[rollback_mosdns_specific] = false;
+                    isUpdating.value['rollback_mosdns_specific'] = false;
                 };
 
                 const showRollbackModal = ref(false);
