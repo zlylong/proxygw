@@ -1,50 +1,71 @@
 package main
 
-func buildBaseXrayConfig() map[string]interface{} {
-	return map[string]interface{}{
+func buildBaseXrayConfig(mode string) map[string]interface{} {
+	config := map[string]interface{}{
 		"log":    map[string]string{"loglevel": "warning"},
 		"api":    map[string]interface{}{"services": []string{"StatsService"}, "tag": "api"},
 		"stats":  map[string]interface{}{},
 		"policy": map[string]interface{}{"system": map[string]interface{}{"statsInboundDownlink": true, "statsInboundUplink": true}},
-		"fakedns": []map[string]interface{}{
-			{
-				"id":       "fakedns",
-				"ipPool":   "198.18.0.0/16",
-				"poolSize": 65535,
-			},
-		},
-		"dns": map[string]interface{}{
-			"servers": []string{"fakedns"},
-		},
 		"inbounds": []map[string]interface{}{
 			{
 				"port": 12345, "protocol": "dokodemo-door",
 				"settings":       map[string]interface{}{"network": "tcp,udp", "followRedirect": true},
 				"streamSettings": map[string]interface{}{"sockopt": map[string]string{"tproxy": "tproxy"}},
-				"sniffing":       map[string]interface{}{"enabled": true, "destOverride": []string{"http", "tls", "fakedns"}},
+				"sniffing":       map[string]interface{}{"enabled": true, "destOverride": []string{"http", "tls"}},
 			},
 			{
 				"listen": "127.0.0.1", "port": 10085, "protocol": "dokodemo-door",
 				"settings": map[string]interface{}{"address": "127.0.0.1"},
 				"tag":      "api_inbound",
 			},
-			{
-				"port": 5353, "listen": "127.0.0.1", "protocol": "dokodemo-door",
-				"settings": map[string]interface{}{"address": "8.8.8.8", "port": 53, "network": "udp"},
-				"tag":      "dns-in",
-			},
 		},
 		"outbounds": []map[string]interface{}{
 			{"protocol": "freedom", "tag": "direct", "streamSettings": map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}}},
 			{"protocol": "blackhole", "tag": "block"},
-			{"protocol": "dns", "tag": "dns-out", "streamSettings": map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}}},
 		},
 		"routing": map[string]interface{}{
 			"domainStrategy": "AsIs",
 			"rules": []map[string]interface{}{
 				{"inboundTag": []string{"api_inbound"}, "outboundTag": "api", "type": "field"},
-				{"inboundTag": []string{"dns-in"}, "outboundTag": "dns-out", "type": "field"},
 			},
 		},
 	}
+
+	if mode != "C" {
+		config["fakedns"] = []map[string]interface{}{
+			{
+				"id":       "fakedns",
+				"ipPool":   "198.18.0.0/16",
+				"poolSize": 65535,
+			},
+		}
+		config["dns"] = map[string]interface{}{
+			"servers": []string{"fakedns"},
+		}
+		
+		inbounds := config["inbounds"].([]map[string]interface{})
+		inbounds[0]["sniffing"].(map[string]interface{})["destOverride"] = []string{"http", "tls", "fakedns"}
+		
+		inbounds = append(inbounds, map[string]interface{}{
+			"port": 5353, "listen": "127.0.0.1", "protocol": "dokodemo-door",
+			"settings": map[string]interface{}{"address": "8.8.8.8", "port": 53, "network": "udp"},
+			"tag":      "dns-in",
+		})
+		config["inbounds"] = inbounds
+
+		outbounds := config["outbounds"].([]map[string]interface{})
+		outbounds = append(outbounds, map[string]interface{}{
+			"protocol": "dns", "tag": "dns-out", "streamSettings": map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}},
+		})
+		config["outbounds"] = outbounds
+
+		routing := config["routing"].(map[string]interface{})
+		rules := routing["rules"].([]map[string]interface{})
+		rules = append(rules, map[string]interface{}{
+			"inboundTag": []string{"dns-in"}, "outboundTag": "dns-out", "type": "field",
+		})
+		routing["rules"] = rules
+	}
+
+	return config
 }

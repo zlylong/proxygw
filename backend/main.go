@@ -457,7 +457,9 @@ func applyMosdnsConfig() error {
 }
 
 func applyXrayConfig() error {
-	config := buildBaseXrayConfig()
+	var mode string
+	db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
+	config := buildBaseXrayConfig(mode)
 
 	rows, err := db.Query("SELECT id, name, type, address, port, uuid, COALESCE(params, '{}') FROM nodes WHERE active=1")
 	if err != nil {
