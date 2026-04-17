@@ -71,6 +71,8 @@ ProxyGW 设计了三种物理隔离的网络接管模式，以适应不同级别
 
 ## 📚 文档指南
 - [ROS 新手配置指南](./docs/ROS_SETUP.md) - MikroTik RouterOS OSPF/DNS 等配套设置新手教程
+- [OpenWrt 新手配置指南](./docs/OPENWRT_SETUP.md) - OpenWrt OSPF/DNS/旁路等配套设置新手教程
+- [路由分流规则入门](./docs/ROUTING_RULES_GUIDE.md) - GeoSite/GeoIP 及代理直连工作原理解析
 
 如果您是系统管理员、网络工程师或希望进行二次开发的工程师，请查阅 `docs/` 目录下的深入文档：
 
