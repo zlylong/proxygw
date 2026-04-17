@@ -3,11 +3,11 @@ package remote_deploy
 import (
 	"bytes"
 	"fmt"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 	"net"
 	"os"
 	"path/filepath"
-	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 	"time"
 )
 
@@ -26,17 +26,17 @@ func getKnownHostsPath() string {
 func getHostKeyCallback() ssh.HostKeyCallback {
 	path := getKnownHostsPath()
 	os.MkdirAll(filepath.Dir(path), 0700)
-	
+
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		os.WriteFile(path, []byte(""), 0600)
 	}
-	
+
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		hkCallback, err := knownhosts.New(path)
 		if err != nil {
 			return fmt.Errorf("failed to load known_hosts: %v", err)
 		}
-		
+
 		err = hkCallback(hostname, remote, key)
 		if err != nil {
 			keyErr, ok := err.(*knownhosts.KeyError)
@@ -46,7 +46,7 @@ func getHostKeyCallback() ssh.HostKeyCallback {
 					return err
 				}
 				defer f.Close()
-				
+
 				knownHostLine := knownhosts.Line([]string{hostname}, key)
 				_, err = f.WriteString(knownHostLine + "\n")
 				return err

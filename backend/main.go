@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-		_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 var db *sql.DB
@@ -370,7 +370,7 @@ func cronUpdater() {
 var (
 	applyTimer *time.Timer
 	applyMutex sync.Mutex
-	)
+)
 
 func scheduleApply() {
 	applyMutex.Lock()
@@ -414,9 +414,15 @@ func formatUpstreams(addrs string, useSocks bool) string {
 func applyMosdnsConfig() error {
 	var local, remote, lazyStr string
 
-	db.QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local)
-	db.QueryRow("SELECT value FROM settings WHERE key='dns_remote'").Scan(&remote)
-	db.QueryRow("SELECT value FROM settings WHERE key='dns_lazy'").Scan(&lazyStr)
+	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local); err != nil {
+		log.Printf("[WARN] Failed to load dns_local: %v", err)
+	}
+	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_remote'").Scan(&remote); err != nil {
+		log.Printf("[WARN] Failed to load dns_remote: %v", err)
+	}
+	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_lazy'").Scan(&lazyStr); err != nil {
+		log.Printf("[WARN] Failed to load dns_lazy: %v", err)
+	}
 
 	var proxyDomains []string
 	dRows, err := db.Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")
