@@ -5,10 +5,28 @@
 
 set -euo pipefail
 
+echo "=== ProxyGW Deployment Script ==="
+
+# OS and Architecture Check
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    if [[ "$ID" != "debian" && "$ID" != "ubuntu" ]]; then
+        echo "Error: This script is only designed for Debian/Ubuntu based systems."
+        exit 1
+    fi
+else
+    echo "Warning: Cannot determine OS. Proceeding anyway..."
+fi
+
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64) XRAY_ARCH="64"; MOSDNS_ARCH="amd64" ;;
+    aarch64) XRAY_ARCH="arm64-v8a"; MOSDNS_ARCH="arm64" ;;
+    *) echo "Error: Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+
 REPO_DIR="/root/proxygw"
 export GO111MODULE=on
-
-echo "=== ProxyGW Deployment Script ==="
 
 echo "[1/6] Installing system dependencies..."
 apt-get update
@@ -30,8 +48,8 @@ if ! grep -q "100 tproxy" /etc/iproute2/rt_tables; then
     echo "100 tproxy" >> /etc/iproute2/rt_tables
 fi
 # Add rule if not exists
-ip rule show | grep -q "fwmark 0x1 lookup tproxy" || ip rule add fwmark 1 table tproxy
-ip route show table tproxy | grep -q "local default dev lo" || ip route add local default dev lo table tproxy
+ip rule show | grep -q "fwmark 0x1 lookup tproxy" || ip rule add fwmark 1 table tproxy 2>/dev/null || true
+ip route show table tproxy | grep -q "local default dev lo" || ip route add local default dev lo table tproxy 2>/dev/null || true
 
 # Apply system kernel tunings for Transparent Proxying
 echo "Applying sysctl kernel tunings for BBR and Conntrack..."
@@ -121,18 +139,38 @@ go build -o proxygw-backend .
 echo "[5/6] Creating Systemd service..."
 cp "$REPO_DIR/systemd/proxygw.service" /etc/systemd/system/
 
-
-echo "[5.5/6] Installing Xray and Mosdns and their Systemd services..."
-chmod +x "$REPO_DIR/core/mosdns/mosdns" || true
+echo "[5.5/6] Verifying and Installing Core Binaries ($ARCH)..."
+# Check and download Xray if it doesn't match the architecture or doesn't exist
+if ! "$REPO_DIR/core/xray/xray" version >/dev/null 2>&1; then
+    echo "Downloading Xray for $ARCH..."
+    XRAY_URL="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${XRAY_ARCH}.zip"
+    wget -qO /tmp/xray.zip "$XRAY_URL"
+    unzip -qo /tmp/xray.zip xray -d "$REPO_DIR/core/xray/"
+    rm -f /tmp/xray.zip
+fi
 chmod +x "$REPO_DIR/core/xray/xray" || true
 
+# Check and download Mosdns if it doesn't match the architecture or doesn't exist
+if ! "$REPO_DIR/core/mosdns/mosdns" version >/dev/null 2>&1; then
+    echo "Downloading Mosdns for $ARCH..."
+    MOSDNS_LATEST=$(curl -s https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    if [ -n "$MOSDNS_LATEST" ]; then
+        MOSDNS_URL="https://github.com/IrineSistiana/mosdns/releases/download/${MOSDNS_LATEST}/mosdns-linux-${MOSDNS_ARCH}.zip"
+        wget -qO /tmp/mosdns.zip "$MOSDNS_URL"
+        unzip -qo /tmp/mosdns.zip mosdns -d "$REPO_DIR/core/mosdns/"
+        rm -f /tmp/mosdns.zip
+    else
+        echo "Warning: Failed to fetch Mosdns latest version!"
+    fi
+fi
+chmod +x "$REPO_DIR/core/mosdns/mosdns" || true
 
-cp "$REPO_DIR/systemd/mosdns.service" /etc/systemd/system/
-cp "$REPO_DIR/systemd/xray.service" /etc/systemd/system/
+cp "$REPO_DIR/systemd/mosdns.service" /etc/systemd/system/ || true
+cp "$REPO_DIR/systemd/xray.service" /etc/systemd/system/ || true
 
 echo "[6/6] Starting services..."
 systemctl daemon-reload
-systemctl enable --now proxygw mosdns xray
+systemctl enable --now proxygw mosdns xray || true
 
 # Automatically generate a secure password if it's a fresh install
 # Wait a few seconds for the database to be initialized by the backend

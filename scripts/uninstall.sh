@@ -14,23 +14,25 @@ rm -f /etc/systemd/system/mosdns.service
 rm -f /etc/systemd/system/xray.service
 systemctl daemon-reload
 
-echo "[3/5] Removing binaries..."
-rm -f /usr/local/bin/mosdns
-rm -f /usr/local/bin/xray
+echo "[3/5] Removing routing and iptables rules..."
+ip rule del fwmark 1 table tproxy 2>/dev/null || true
+ip route flush table tproxy 2>/dev/null || true
+sed -i /100 tproxy/d /etc/iproute2/rt_tables || true
+nft flush table inet proxygw 2>/dev/null || true
+nft delete table inet proxygw 2>/dev/null || true
+rm -f /etc/nftables.conf
 
-echo "[4/5] Removing kernel tunings ytraffic rules..."
-rm -f /etc/qysctl.d/99-proxygw.conf
-ip rule del fwmark 1 table tproxy || true
-ip route flush table tproxy || true
-sed -i '/100 tproxy/d' /etc/iproute2/rt_tables || true
+echo "[4/5] Removing kernel tunings..."
+rm -f /etc/sysctl.d/99-proxygw.conf
+sysctl --system || true
 
 echo "[5/5] Cleaning up directories..."
-echo "Do you want to delete the /root/proxygw directory (including the database)? [y/N]"
-read answer
-if [[ "$answer" =~ ^[Yy]$ /]; then
+read -p "Do you want to delete the /root/proxygw directory (including the database and configs)? [y/N]: " answer
+if [[ "$answer" =~ ^[Yy]$ ]]; then
     rm -rf /root/proxygw
-    echo "Directory removed."
+    echo "Directory /root/proxygw removed."
 else
-    echo "Directory retained."
-"fä
+    echo "Directory /root/proxygw retained."
+fi
+
 echo "Uninstallation complete!"
