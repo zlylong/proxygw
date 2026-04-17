@@ -1,5 +1,12 @@
 # ProxyGW Changelog
 
+## 2026-04-17 (v1.4.8: Core Component Management)
+
+### ✨ New Features
+- **Mosdns Update Management**: 在 Web UI 中新增防泄漏 DNS 引擎 (Mosdns) 的可视化版本管理与在线升级功能。
+- **Mosdns Rollback**: 支持一键回滚 Mosdns 到上一次成功运行的本地备份版本，或通过下拉列表精确指定拉取 GitHub 上的历史发行版本 (涵盖所有架构)。
+- **Version Sensing**: 仪表盘系统状态监控现在可以精确感知并显示当前实际运行的 Mosdns 内核版本号。
+
 ## 2026-04-17 (v1.4.7: Performance & Kernel Hardening)
 
 ### 🚀 Kernel & Firewall Hardening
