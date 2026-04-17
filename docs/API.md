@@ -26,7 +26,7 @@ Base URL: `http://<host>/api`
 ### GET /status
 返回关键字段：
 - `xray`, `ospf`, `mosdns`（服务状态）
-- `mode`（A/B）
+- `mode`（A/B/C）
 - `xrayVersion`, `geoVersion`
 - `cpu`, `ram`, `up`, `down`
 
@@ -38,9 +38,9 @@ Base URL: `http://<host>/api`
 { "mode": "A" }
 ```
 行为：
-- A: `start nftables`, `stop frr`
-- B: `start nftables`, `start frr`
-- 自动触发 Mosdns/Xray 配置重生成
+- A (全局模式): 停用并清理 OSPF，通过 Nftables 强制接管局域网流量。
+- B (纯 Fake-IP): 启用 OSPF 并仅向外发布 `198.18.0.0/16` Fake-IP 网段。
+- C (纯 OSPF): 关闭 Fake-IP 并清理 Xray/Mosdns 的假域配置，启用 OSPF 动态向外发布真实 GeoIP 代理网段。
 
 ## 节点管理
 

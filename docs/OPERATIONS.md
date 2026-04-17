@@ -75,6 +75,7 @@ sqlite3 /root/proxygw/config/proxygw.db "UPDATE users SET password_hash = '' WHE
   ```
 - **典型错误**：如果看到 IP 集合相关的 Error，请检查你是否不小心放入了二进制格式的 `geoip.dat` 文件。Mosdns v5+ 必须使用纯文本的 CIDR 格式。
 
-### 3. OSPF 路由不生效 / 无法无感接管 (Mode B)
+### 3. OSPF 路由不生效 / 无法无感接管 (Mode B / Mode C)
 - **检查邻居状态**：执行 `vtysh` 进入路由器交互模式，输入 `show ip ospf neighbor`。
 - **诊断要素**：确保主路由（如 MikroTik ROS / OpenWrt）已将此代理服务器的 IP 网段加入相同的 OSPF Area 并且 Interface Network Type 匹配（通常应设为 Broadcast）。
+- **防环路漏配 (Mode C)**：如果在 Mode C 发现代理通缩、网速极慢或完全断网，请检查主路由上是否正确配置了源地址绕过（PBR 策略路由）以防止 OSPF 环路。

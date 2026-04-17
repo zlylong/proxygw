@@ -1,6 +1,11 @@
 # ProxyGW Changelog
 
-## 2026-04-17 (v1.4.0: Stable Release)
+## 2026-04-17 (v1.4.0-rc.1: Pre-release)
+
+### 🚀 Architecture Refactoring (3-Mode Routing)
+- **Mode A (全局网关接管)**: 专门针对新手和普通网络环境。启用 Nftables TProxy 强行接管所有物理流量，同时在底层强制终止 FRR (OSPF) 进程，彻底阻断任何不必要的路由通告，确保零路由污染。
+- **Mode B (纯 Fake-IP)**: 专门针对高性能需求用户。Mosdns 开启全局 Fake-IP，FRR (OSPF) 严格只向主路由宣告 `198.18.0.0/16` 虚拟网段。物理隔绝真实的海外 GeoIP 下发，从根本上免疫 OSPF 环路。
+- **Mode C (纯 OSPF)**: 专门针对需要真实 IP 的高级玩家。彻底从 Xray 和 Mosdns 配置中连根拔起 Fake-IP (FakeDNS) 组件，FRR (OSPF) 恢复全量 GeoIP 真实海外网段的动态下发。切换时自动抹除遗留路由缓存。
 
 ### 🔐 Security & Stability
 
