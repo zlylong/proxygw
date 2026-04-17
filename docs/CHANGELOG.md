@@ -1,5 +1,9 @@
 # ProxyGW Changelog
 
+## 2026-04-17 (v1.4.0-rc.1: Pre-release)
+- 预发布 1.4.0 版本
+- 同步最新的 GeoData 和 Core 二进制文件
+
 ## 2026-04-16 (v1.3.2: Bugfix - Link Parsing & Architecture Docs)
 - **Bug Fix**: 修复前后端 `vless://` 链接解析逻辑，防止在导入节点时漏掉 `flow` (如 `xtls-rprx-vision`) 和 `encryption` 流控参数，导致 Reality 握手失败。
 - **Documentation**: 更新 UI 面板中的 "Xray 透明代理架构分析"，精准描述当前采用的最佳实践架构（Nftables 无脑劫持 + Xray Sniffing 与 Routing 分流）。
