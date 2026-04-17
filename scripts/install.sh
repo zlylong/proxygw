@@ -44,6 +44,7 @@ net.ipv4.ip_forward = 1
 net.ipv6.conf.all.forwarding = 1
 net.ipv4.conf.all.send_redirects = 0
 net.ipv4.conf.default.send_redirects = 0
+net.ipv4.conf.all.route_localnet = 1
 
 # --- 2. Conntrack Optimization ---
 net.netfilter.nf_conntrack_max = 1048576
@@ -58,10 +59,10 @@ net.ipv4.tcp_fin_timeout = 15
 net.ipv4.ip_local_port_range = 1024 65535
 net.ipv4.tcp_max_syn_backlog = 8192
 net.ipv4.tcp_max_tw_buckets = 500000
-net.core.somaxconn = 8192
+net.core.somaxconn = 32768
 
 # --- 4. Throughput & BBR ---
-net.core.default_qdisc = fq
+net.core.default_qdisc = fq_codel
 net.ipv4.tcp_congestion_control = bbr
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
@@ -70,6 +71,36 @@ net.ipv4.tcp_wmem = 4096 16384 16777216
 net.ipv4.tcp_fastopen = 3
 SYSCTL_EOF
 sysctl --system || true
+
+echo "Applying strict anti-loop Nftables rules..."
+cat << 'NFT_EOF' > /etc/nftables.conf
+#!/usr/sbin/nft -f
+flush ruleset
+table inet proxygw {
+    chain prerouting {
+        type filter hook prerouting priority mangle; policy accept;
+        # Xray local output MUST bypass TProxy to prevent loop
+        meta mark 0x02 return
+        # Ignore LAN / Multicast / Broadcast traffic
+        ip daddr { 127.0.0.0/8, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 224.0.0.0/4, 255.255.255.255/32 } return
+        # Drop IPv6 traffic to prevent un-proxied leak when DNS resolves AAAA
+        meta nfproto ipv6 drop
+        # TProxy all remaining IPv4 traffic
+        meta l4proto { tcp, udp } mark set 1 tproxy ip to 127.0.0.1:12345 accept
+    }
+    chain output {
+        type route hook output priority mangle; policy accept;
+        # Xray local output MUST bypass TProxy to prevent loop
+        meta mark 0x02 return
+        # Ignore LAN / Multicast / Broadcast traffic
+        ip daddr { 127.0.0.0/8, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 224.0.0.0/4, 255.255.255.255/32 } return
+        # TProxy tag for localhost proxy
+        meta l4proto { tcp, udp } mark set 1 accept
+    }
+}
+NFT_EOF
+systemctl enable nftables
+nft -f /etc/nftables.conf || true
 
 echo "[3/6] Setting up directory structure..."
 mkdir -p "$REPO_DIR/config"
@@ -92,8 +123,8 @@ cp "$REPO_DIR/systemd/proxygw.service" /etc/systemd/system/
 
 
 echo "[5.5/6] Installing Xray and Mosdns and their Systemd services..."
-chmod +x "$REPO_DIR/core/mosdns/mosdns"
-chmod +x "$REPO_DIR/core/xray/xray"
+chmod +x "$REPO_DIR/core/mosdns/mosdns" || true
+chmod +x "$REPO_DIR/core/xray/xray" || true
 
 
 cp "$REPO_DIR/systemd/mosdns.service" /etc/systemd/system/

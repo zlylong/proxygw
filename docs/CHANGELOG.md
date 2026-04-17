@@ -1,5 +1,16 @@
 # ProxyGW Changelog
 
+## 2026-04-17 (v1.4.7: Performance & Kernel Hardening)
+
+### 🚀 Kernel & Firewall Hardening
+- **Nftables Loop Prevention**: 彻底重写 `/etc/nftables.conf` 透明代理接管栈。在 `prerouting` 链强制增设 `meta mark 0x02 return` 防环路跳出规则，从内核态硬性切断 Xray 发出流量被自身二次劫持的致命死循环。
+- **IPv6 DNS/Traffic Leak Protection**: 在局域网透明代理链路中加入严苛的 `meta nfproto ipv6 drop` 规则。当客户端向双栈域名发起解析并试图通过 IPv6 通信时直接静默丢弃，强制回落至 IPv4 透明代理隧道，彻底封堵真 IP 裸奔漏洞。
+- **IP Rule Idempotency (内存泄漏修复)**: 重构了 Go 后端关于策略路由 (`ip rule / ip route`) 的下发逻辑，引入幂等性检查与自动清理。修复了由于网关频繁热重载导致底层路由表无限膨胀（叠加近百条重复规则）并最终耗尽 CPU 的高危 BUG。
+- **Extreme Concurrency (Sysctl)**: 在自动化安装部署脚本 `install.sh` 中固化 ProxyGW 专属的内核网络栈参数 (`/etc/sysctl.d/99-proxygw.conf`)：
+  - 暴力提升连接跟踪表容量 (`nf_conntrack_max = 1048576`)，杜绝 P2P 和大并发场景下的 `table full` 熔断。
+  - 全局默认开启 **BBR** 拥塞控制算法与 `fq_codel` 队列，代理延迟与吞吐量提升至物理极限。
+  - 正确开启 `route_localnet=1`，允许本机回环劫持，匹配透明代理的流量回注。
+
 ## 2026-04-17 (v1.4.6: Stable Release)
 
 ### 🐛 Bug Fixes

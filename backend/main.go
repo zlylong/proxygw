@@ -791,8 +791,8 @@ func main() {
 	applyMosdnsConfig()
 	applyXrayConfig()
 
-	exec.Command("ip", "rule", "add", "fwmark", "1", "lookup", "100").Run()
-	exec.Command("ip", "route", "add", "local", "default", "dev", "lo", "table", "100").Run()
+	exec.Command("sh", "-c", "ip rule del fwmark 1 lookup tproxy 2>/dev/null || true; ip rule add fwmark 1 lookup tproxy").Run()
+	exec.Command("sh", "-c", "ip route del local default dev lo table tproxy 2>/dev/null || true; ip route add local default dev lo table tproxy").Run()
 
 	r := gin.Default()
 	registerAPIRoutes(r)
