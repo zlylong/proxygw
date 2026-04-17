@@ -92,9 +92,9 @@ func getRemoteNodeDetails(c *gin.Context) {
 			Scan(&spriv, &spub, &cpriv, &cpub, &ep, &lport, &taddr, &caddr)
 		if err == nil {
 			node["wg"] = map[string]interface{}{
-				"server_pub": spub, "client_priv": cpriv, "client_pub": cpub,
+				"server_pub": spub, "client_pub": cpub,
 				"endpoint": ep, "port": lport, "tunnel_addr": taddr, "client_addr": caddr,
-				"server_priv": spriv, "share_link": remote_deploy.GenerateWireGuardShareLink(cpriv, host, lport, spub, caddr, "", "ProxyGW-"+host, 1420), 
+				"share_link": remote_deploy.GenerateWireGuardShareLink(cpriv, host, lport, spub, caddr, "", "ProxyGW-"+host, 1420), 
 			}
 		}
 	} else if ntype == "vless" {
@@ -104,9 +104,8 @@ func getRemoteNodeDetails(c *gin.Context) {
 			Scan(&uuid, &rpriv, &rpub, &sid, &sname, &dest, &lport, &slink)
 		if err == nil {
 			node["vless"] = map[string]interface{}{
-				"uuid": uuid, "reality_pub": rpub, "short_id": sid,
-				"server_name": sname, "dest": dest, "port": lport, "share_link": slink,
-				"reality_priv": rpriv, 
+				"uuid": "***REDACTED***", "reality_pub": rpub, "short_id": sid,
+				"server_name": sname, "dest": dest, "port": lport, "share_link": slink, 
 			}
 		}
 	}
@@ -143,10 +142,13 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 			cPriv, cPub, _ = remote_deploy.GenerateWireGuardKeys()
 			tunnel, clientIP, _ = remote_deploy.GenerateUniqueWGTunnel(db)
 		} else {
-			port = int(params["port"].(float64))
-			sPriv, sPub = params["server_priv"].(string), params["server_pub"].(string)
-			cPriv, cPub = params["client_priv"].(string), params["client_pub"].(string)
-			tunnel, clientIP = params["tunnel_addr"].(string), params["client_addr"].(string)
+			if p, ok := params["port"].(float64); ok { port = int(p) }
+			if p, ok := params["server_priv"].(string); ok { sPriv = p }
+			if p, ok := params["server_pub"].(string); ok { sPub = p }
+			if p, ok := params["client_priv"].(string); ok { cPriv = p }
+			if p, ok := params["client_pub"].(string); ok { cPub = p }
+			if p, ok := params["tunnel_addr"].(string); ok { tunnel = p }
+			if p, ok := params["client_addr"].(string); ok { clientIP = p }
 		}
 		
 		endpoint := fmt.Sprintf("%s:%d", req.SSHHost, port)
@@ -173,10 +175,13 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 			dest = "www.microsoft.com:443"
 			serverName = "www.microsoft.com"
 		} else {
-			port = int(params["port"].(float64))
-			rPriv, rPub = params["reality_priv"].(string), params["reality_pub"].(string)
-			uuid, shortId = params["uuid"].(string), params["short_id"].(string)
-			dest, serverName = params["dest"].(string), params["server_name"].(string)
+			if p, ok := params["port"].(float64); ok { port = int(p) }
+			if p, ok := params["reality_priv"].(string); ok { rPriv = p }
+			if p, ok := params["reality_pub"].(string); ok { rPub = p }
+			if p, ok := params["uuid"].(string); ok { uuid = p }
+			if p, ok := params["short_id"].(string); ok { shortId = p }
+			if p, ok := params["dest"].(string); ok { dest = p }
+			if p, ok := params["server_name"].(string); ok { serverName = p }
 		}
 		
 		shareLink = fmt.Sprintf("vless://%s@%s:%d?security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&type=tcp&flow=xtls-rprx-vision&encryption=none#%s",
@@ -194,16 +199,16 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 	}
 	
 	logAction(id, "deploy", "running", "Executing installation script on remote host...")
-	stdout, stderr, err := sshClient.RunCommand(script)
+	_, _, err = sshClient.RunCommand(script)
 	
 	if err != nil {
 		db.Exec("UPDATE remote_nodes SET status = 'Failed' WHERE id = ?", id)
-		logAction(id, "deploy", "failed", fmt.Sprintf("Error: %v\nStderr: %s", err, stderr))
+		logAction(id, "deploy", "failed", fmt.Sprintf("Deployment failed: %v", err))
 		return
 	}
 	
 	db.Exec("UPDATE remote_nodes SET status = 'Online' WHERE id = ?", id)
-	logAction(id, "deploy", "success", fmt.Sprintf("Deployment successful.\nStdout: %s", stdout))
+	logAction(id, "deploy", "success", "Deployment successful. (Detailed output redacted for security)")
 }
 
 func createAndDeployRemoteNode(c *gin.Context) {

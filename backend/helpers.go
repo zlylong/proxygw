@@ -342,7 +342,28 @@ func extractGeoIPs(filename, targetTag string) []string {
 	return res
 }
 
-var aesKey = []byte("proxygw-secret-key-32-bytes-long") // Hardcoded for this fix, ideally derived
+var aesKey []byte
+
+func init() {
+	keyPath := getPath("config", "aes.key")
+	data, err := os.ReadFile(keyPath)
+	if err == nil && len(data) == 32 {
+		aesKey = data
+		return
+	}
+
+	oldKey := []byte("proxygw-secret-key-32-bytes-long")
+	dbPath := getPath("config", "proxygw.db")
+	if _, err := os.Stat(dbPath); err == nil {
+		aesKey = oldKey
+	} else {
+		aesKey = make([]byte, 32)
+		if _, err := io.ReadFull(rand.Reader, aesKey); err != nil {
+			aesKey = oldKey
+		}
+	}
+	os.WriteFile(keyPath, aesKey, 0600)
+}
 
 func EncryptAES(text string) string {
 	block, err := aes.NewCipher(aesKey)
