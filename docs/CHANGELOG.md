@@ -2,6 +2,16 @@
 
 ## 2026-04-17 (v1.4.6: Stable Release)
 
+### 🐛 Bug Fixes
+- **Mode C Geosite Route Injection**: 完美修复了在 Mode C (纯 OSPF 模式) 下，用户添加 `geosite` 域名规则时，无法将真实的 GeoIP 下发给主路由的缺陷。现在后端会自动将 `geosite` 的分类标签与 `geoip` 进行智能匹配降级，自动为代理域名提取出对应的真实 IP 网段并执行 OSPF 广播，彻底对齐用户直觉逻辑。
+
+## 2026-04-17 (v1.4.5: Stable Release)
+
+### 🐛 Bug Fixes
+- **OSPF Route Injection (Mode B/C)**: 彻底修复了通过 UI 切换路由模式时 FRR 配置不重载，以及 Mode B 遗漏静态 Fake-IP 路由分发的致命 BUG。现在 Mode B 纯 Fake-IP 与 Mode C 真实 GeoIP 均能完美将 OSPF LSA 注入至主路由。
+
+## 2026-04-17 (v1.4.0: Stable Release)
+
 ### 🚀 Architecture Refactoring (3-Mode Routing)
 - **Mode A (全局网关接管)**: 专门针对新手和普通网络环境。启用 Nftables TProxy 强行接管所有物理流量，同时在底层强制终止 FRR (OSPF) 进程，彻底阻断任何不必要的路由通告，确保零路由污染。
 - **Mode B (纯 Fake-IP)**: 专门针对高性能需求用户。Mosdns 开启全局 Fake-IP，FRR (OSPF) 严格只向主路由宣告 `198.18.0.0/16` 虚拟网段。物理隔绝真实的海外 GeoIP 下发，从根本上免疫 OSPF 环路。
@@ -10,12 +20,9 @@
 ### 🔐 Security & Stability
 
 ### Fixed
-- **Mode C Geosite Route Injection**: 完美修复了在 Mode C (纯 OSPF 模式) 下，用户添加 `geosite` 域名规则时，无法将真实的 GeoIP 下发给主路由的缺陷。现在后端会自动将 `geosite` 的分类标签与 `geoip` 进行智能匹配降级，自动为代理域名提取出对应的真实 IP 网段并执行 OSPF 广播，彻底对齐用户直觉逻辑。
-- **OSPF Route Injection (Mode B/C)**: 彻底修复了通过 UI 切换路由模式时 FRR 配置不重载，以及 Mode B 遗漏静态 Fake-IP 路由分发的致命 BUG。现在 Mode B 纯 Fake-IP 与 Mode C 真实 GeoIP 均能完美将 OSPF LSA 注入至主路由。
 - **DNS Configuration Regression**: 修复了 `applyMosdnsConfig()` 遗漏读取数据库的问题，现在用户在面板保存的 `dns_local`, `dns_remote`, `dns_lazy` 配置可以正确下发并真正生效至 Mosdns 引擎。
 - **SSH Security (MITM)**: 强化远程节点部署架构。移除了高危的 `InsecureIgnoreHostKey()`，引入了基于 `known_hosts` 的 TOFU (Trust On First Use) 机制，现在服务端能有效抵御针对部署链路的中间人劫持攻击。
 - **Code Quality**: 移除了 `main.go` 中紧随 `log.Fatal` 的多余数据库 PRAGMA 写入死代码，提升代码健壮性。
-
 
 ### 🚀 Features & Audit Fixes
 
