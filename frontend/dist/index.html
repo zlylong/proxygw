@@ -97,6 +97,24 @@
             </div>
         </div>
 
+        
+        <!-- Mosdns Rollback Modal -->
+        <div v-if="showMosdnsRollbackModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-lg p-6 max-w-sm w-full">
+                <h3 class="text-lg font-bold mb-4">选择 Mosdns 安装版本</h3>
+                <div v-if="mosdnsVersions.length === 0" class="text-center py-4 text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>获取 Github 版本列表中...</div>
+                <div v-else class="space-y-4">
+                    <select v-model="selectedMosdnsRollbackVersion" class="w-full border rounded p-2 text-sm">
+                        <option value="">请选择要安装的版本</option>
+                        <option v-for="v in mosdnsVersions" :key="v" :value="v">{{ v }}</option>
+                    </select>
+                    <div class="flex justify-end space-x-2 mt-4">
+                        <button @click="showMosdnsRollbackModal = false" class="px-4 py-2 border rounded hover:bg-gray-50 text-sm">取消</button>
+                        <button @click="confirmMosdnsRollback" :disabled="!selectedMosdnsRollbackVersion || isUpdating[rollback_mosdns_specific]" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 text-sm"><i v-if="isUpdating[rollback_mosdns_specific]" class="fas fa-spinner fa-spin mr-1"></i>确认安装</button>
+                    </div>
+                </div>
+            </div>
+        </div>
         <!-- Password Modal -->
         <div v-if="showPwdModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white rounded-lg p-6 w-96 shadow-2xl text-gray-800">
@@ -658,7 +676,16 @@ PersistentKeepalive = 25
                                             <button @click="updateComp('xray')" :disabled="isUpdating['xray']" class="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm hover:bg-blue-200 disabled:opacity-50"><i v-if="isUpdating['xray']" class="fas fa-spinner fa-spin mr-1"></i>拉取最新</button>
                                         </div>
                                     </div>
-                                    <div class="flex justify-between items-center">
+                                    
+                                    <div class="flex justify-between items-center pt-2 mt-2 border-t">
+                                        <div><div class="font-bold">Mosdns</div><div class="text-xs text-gray-500">防泄漏 DNS 分流引擎 <span v-if="sysStatus.mosdnsVersion" class="ml-1 px-1 bg-gray-100 rounded border">{{ sysStatus.mosdnsVersion }}</span></div></div>
+                                        <div class="space-x-2">
+                                            <button @click="openMosdnsRollbackModal" class="bg-gray-100 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-200 disabled:opacity-50">指定版本</button>
+                                            <button @click="updateComp(rollback_mosdns)" :disabled="isUpdating[rollback_mosdns]" class="bg-gray-100 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-200 disabled:opacity-50" title="回滚到上一次安装的版本"><i v-if="isUpdating[rollback_mosdns]" class="fas fa-spinner fa-spin mr-1"></i>本地回滚</button>
+                                            <button @click="updateComp(mosdns)" :disabled="isUpdating[mosdns]" class="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm hover:bg-blue-200 disabled:opacity-50"><i v-if="isUpdating[mosdns]" class="fas fa-spinner fa-spin mr-1"></i>拉取最新</button>
+                                        </div>
+                                    </div>
+                                    <div class="flex justify-between items-center pt-2 mt-2 border-t">
                                         <div><div class="font-bold">GeoData (Rules) <span v-if="sysStatus.geoVersion && sysStatus.geoVersion !== 'Unknown'" class="ml-1 px-1 bg-gray-100 text-gray-600 rounded border font-normal text-xs">{{ sysStatus.geoVersion }}</span></div><div class="text-xs text-gray-500">geosite.dat / geoip.dat</div></div>
                                         <button @click="updateComp('geodata')" :disabled="isUpdating['geodata']" class="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm hover:bg-blue-200 disabled:opacity-50"><i v-if="isUpdating['geodata']" class="fas fa-spinner fa-spin mr-1"></i>更新规则库</button>
                                     </div>
@@ -795,7 +822,56 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     }
                 };
 
-const showRollbackModal = ref(false);
+
+                const showMosdnsRollbackModal = ref(false);
+                const mosdnsVersions = ref([]);
+                const selectedMosdnsRollbackVersion = ref();
+
+                const openMosdnsRollbackModal = () => {
+                    showMosdnsRollbackModal.value = true;
+                    if (mosdnsVersions.value.length === 0) fetchMosdnsVersions();
+                };
+
+                const fetchMosdnsVersions = async () => {
+                    try {
+                        const res = await apiFetch(/api/mosdns/versions);
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.versions) {
+                                mosdnsVersions.value = data.versions;
+                            }
+                        }
+                    } catch (e) {
+                        showToast("获取 Mosdns 版本列表失败", "error");
+                        showMosdnsRollbackModal.value = false;
+                    }
+                };
+
+                const confirmMosdnsRollback = async () => {
+                    if (!selectedMosdnsRollbackVersion.value) return;
+                    isUpdating.value[rollback_mosdns_specific] = true;
+                    showToast("Mosdns 安装任务已触发，请稍候...", "success");
+                    try {
+                        const res = await apiFetch(/api/update/mosdns, {
+                            method: POST,
+                            headers: {Content-Type: application/json},
+                            body: JSON.stringify({ version: selectedMosdnsRollbackVersion.value })
+                        });
+                        if (res.ok) {
+                            showToast(Mosdns 指定版本安装成功！);
+                            showMosdnsRollbackModal.value = false;
+                            loadData();
+                        } else {
+                            const data = await res.json().catch(()=>({}));
+                            showToast(安装失败:  + (data.error || 未知错误), error);
+                        }
+                    } catch (e) {
+                        showToast(安装出错, error);
+                    }
+                    isUpdating.value[rollback_mosdns_specific] = false;
+                };
+
+                const showRollbackModal = ref(false);
                 const xrayVersions = ref([]);
                 const selectedRollbackVersion = ref('');
 
@@ -1279,7 +1355,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
 
                                 return {
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>

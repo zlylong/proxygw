@@ -4,17 +4,18 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"encoding/base64"
-	"io"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -211,9 +212,11 @@ func downloadWithVerification(urlStr, dest, expectedHash string) error {
 		return err
 	}
 
-	if err := verifySHA256(tmpPath, expectedHash); err != nil {
-		os.Remove(tmpPath)
-		return err
+	if expectedHash != "" {
+		if err := verifySHA256(tmpPath, expectedHash); err != nil {
+			os.Remove(tmpPath)
+			return err
+		}
 	}
 
 	return os.Rename(tmpPath, dest)
@@ -228,11 +231,15 @@ func parseVarint(data []byte, idx int) (int, int) {
 	val := 0
 	shift := 0
 	for {
-		if idx >= len(data) { break }
+		if idx >= len(data) {
+			break
+		}
 		b := data[idx]
 		idx++
 		val |= (int(b&0x7F) << shift)
-		if (b & 0x80) == 0 { break }
+		if (b & 0x80) == 0 {
+			break
+		}
 		shift += 7
 	}
 	return val, idx
@@ -240,7 +247,9 @@ func parseVarint(data []byte, idx int) (int, int) {
 
 func extractGeoIPs(filename, targetTag string) []string {
 	data, err := os.ReadFile(filename)
-	if err != nil { return nil }
+	if err != nil {
+		return nil
+	}
 	var res []string
 	idx := 0
 	targetTag = strings.ToUpper(targetTag)
@@ -373,4 +382,18 @@ func DecryptAES(text string) string {
 		return text
 	}
 	return string(data)
+}
+
+func buildMosdnsDownloadURL(version string) (string, error) {
+	arch := runtime.GOARCH
+	if arch != "arm64" && arch != "amd64" {
+		return "", fmt.Errorf("unsupported architecture: %s", arch)
+	}
+
+	ver := strings.TrimSpace(version)
+	if ver == "" || ver == "latest" {
+		return "", fmt.Errorf("explicit version required for mosdns")
+	}
+
+	return fmt.Sprintf("https://github.com/IrineSistiana/mosdns/releases/download/%s/mosdns-linux-%s.zip", ver, arch), nil
 }

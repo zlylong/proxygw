@@ -1,10 +1,10 @@
 package main
 
 import (
-	"log"
 	"bufio"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -91,7 +91,9 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 		ram := readMemoryUsage()
 
 		var mode string
-		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil && err != sql.ErrNoRows { log.Printf("[WARN] SELECT value FROM settings WHERE key='mode' err: %v", err) }
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil && err != sql.ErrNoRows {
+			log.Printf("[WARN] SELECT value FROM settings WHERE key='mode' err: %v", err)
+		}
 
 		xrayVer := "Unknown"
 		xrayVersionOut, err := exec.Command(getPath("core", "xray", "xray"), "version").Output()
@@ -117,13 +119,19 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			downStr = "Active"
 		}
 
+		mosdnsVer := "Unknown"
+		if mosdnsVersionOut, err := exec.Command(getPath("core", "mosdns", "mosdns"), "version").Output(); err == nil {
+			mosdnsVer = strings.TrimSpace(string(mosdnsVersionOut))
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"status": "running", "mode": mode,
 			"xray": xray, "ospf": frr, "mosdns": mosdns,
-			"xrayVersion": xrayVer, "geoVersion": geoVer,
+			"xrayVersion": xrayVer, "geoVersion": geoVer, "mosdnsVersion": mosdnsVer,
 			"cpu": fmt.Sprintf("%.1f", cpu), "ram": fmt.Sprintf("%.1f", ram),
 			"up": upStr, "down": downStr,
 		})
+
 	})
 
 	api.POST("/mode", func(c *gin.Context) {
@@ -165,8 +173,12 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 
 	api.GET("/cron", func(c *gin.Context) {
 		var enabled, cronTime string
-		if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_enabled'").Scan(&enabled); err != nil && err != sql.ErrNoRows { log.Printf("[WARN] SELECT value FROM settings WHERE key='cron_enabled' err: %v", err) }
-		if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_time'").Scan(&cronTime); err != nil && err != sql.ErrNoRows { log.Printf("[WARN] SELECT value FROM settings WHERE key='cron_time' err: %v", err) }
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_enabled'").Scan(&enabled); err != nil && err != sql.ErrNoRows {
+			log.Printf("[WARN] SELECT value FROM settings WHERE key='cron_enabled' err: %v", err)
+		}
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_time'").Scan(&cronTime); err != nil && err != sql.ErrNoRows {
+			log.Printf("[WARN] SELECT value FROM settings WHERE key='cron_time' err: %v", err)
+		}
 		if strings.TrimSpace(cronTime) == "" {
 			cronTime = "04:00"
 			db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_time', ?)", cronTime)
@@ -195,8 +207,12 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 
 	api.GET("/ospf", func(c *gin.Context) {
 		var pub, cand int
-		if err := db.QueryRow("SELECT count(*) FROM routes_table WHERE status='published'").Scan(&pub); err != nil && err != sql.ErrNoRows { log.Printf("[WARN] SELECT count(*) FROM routes_table WHERE status='published' err: %v", err) }
-		if err := db.QueryRow("SELECT count(*) FROM routes_table WHERE status='candidate'").Scan(&cand); err != nil && err != sql.ErrNoRows { log.Printf("[WARN] SELECT count(*) FROM routes_table WHERE status='candidate' err: %v", err) }
+		if err := db.QueryRow("SELECT count(*) FROM routes_table WHERE status='published'").Scan(&pub); err != nil && err != sql.ErrNoRows {
+			log.Printf("[WARN] SELECT count(*) FROM routes_table WHERE status='published' err: %v", err)
+		}
+		if err := db.QueryRow("SELECT count(*) FROM routes_table WHERE status='candidate'").Scan(&cand); err != nil && err != sql.ErrNoRows {
+			log.Printf("[WARN] SELECT count(*) FROM routes_table WHERE status='candidate' err: %v", err)
+		}
 
 		frrOut, _ := exec.Command("vtysh", "-c", "show ip ospf neighbor json").Output()
 		neighborsCount := 0

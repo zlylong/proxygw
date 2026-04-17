@@ -83,12 +83,111 @@ func registerUpdateRoutes(api *gin.RouterGroup) {
 		c.JSON(http.StatusOK, gin.H{"versions": tags})
 	})
 
+	api.GET("/mosdns/versions", func(c *gin.Context) {
+		resp, err := httpClient.Get("https://api.github.com/repos/IrineSistiana/mosdns/releases")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch releases"})
+			return
+		}
+		defer resp.Body.Close()
+
+		var releases []struct {
+			TagName string `json:"tag_name"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse releases"})
+			return
+		}
+
+		var tags []string
+		for _, r := range releases {
+			if strings.TrimSpace(r.TagName) != "" {
+				tags = append(tags, r.TagName)
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"versions": tags})
+	})
+
 	api.POST("/update/:component", func(c *gin.Context) {
 		comp := c.Param("component")
 		switch comp {
 		case "geodata":
 			if err := updateGeodata(); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+				return
+			}
+
+		case "mosdns":
+			var req struct {
+				Version string `json:"version"`
+			}
+			if err := c.ShouldBindJSON(&req); err != nil {
+				if !errors.Is(err, io.EOF) {
+					c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid request payload"})
+					return
+				}
+			}
+			if strings.TrimSpace(req.Version) == "" || req.Version == "latest" {
+				resp, err := httpClient.Get("https://api.github.com/repos/IrineSistiana/mosdns/releases/latest")
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to fetch latest mosdns version"})
+					return
+				}
+				defer resp.Body.Close()
+				var latestRelease struct {
+					TagName string `json:"tag_name"`
+				}
+				if err := json.NewDecoder(resp.Body).Decode(&latestRelease); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to parse latest mosdns release"})
+					return
+				}
+				req.Version = latestRelease.TagName
+			}
+			downloadURL, err := buildMosdnsDownloadURL(req.Version)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid version"})
+				return
+			}
+
+			if err := exec.Command("cp", getPath("core", "mosdns", "mosdns"), getPath("core", "mosdns", "mosdns.bak")).Run(); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "backup failed"})
+				return
+			}
+
+			tmpDir, err := os.MkdirTemp("", "proxygw-mosdns-*")
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "create temp dir failed"})
+				return
+			}
+			defer os.RemoveAll(tmpDir)
+			mosdnsZip := filepath.Join(tmpDir, "mosdns.zip")
+
+			if err := downloadWithVerification(downloadURL, mosdnsZip, ""); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fmt.Sprintf("mosdns download failed: %v", err)})
+				return
+			}
+			if err := exec.Command("unzip", "-qo", mosdnsZip, "-d", tmpDir).Run(); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "unzip failed"})
+				return
+			}
+			if err := exec.Command("install", "-m", "755", filepath.Join(tmpDir, "mosdns"), getPath("core", "mosdns", "mosdns")).Run(); err != nil {
+				_ = exec.Command("cp", getPath("core", "mosdns", "mosdns.bak"), getPath("core", "mosdns", "mosdns")).Run()
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "install failed"})
+				return
+			}
+			if err := exec.Command("systemctl", "restart", "mosdns").Run(); err != nil {
+				_ = exec.Command("cp", getPath("core", "mosdns", "mosdns.bak"), getPath("core", "mosdns", "mosdns")).Run()
+				_ = exec.Command("systemctl", "restart", "mosdns").Run()
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "restart failed, rolled back"})
+				return
+			}
+		case "rollback_mosdns":
+			if err := exec.Command("cp", getPath("core", "mosdns", "mosdns.bak"), getPath("core", "mosdns", "mosdns")).Run(); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "rollback copy failed"})
+				return
+			}
+			if err := exec.Command("systemctl", "restart", "mosdns").Run(); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "rollback restart failed"})
 				return
 			}
 		case "xray":
