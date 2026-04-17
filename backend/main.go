@@ -652,7 +652,7 @@ func applyXrayConfig() error {
 		staticRows.Close()
 	}
 
-	geoipRows, err := db.Query("SELECT value FROM rules WHERE type='geoip' AND policy LIKE 'proxy%'")
+	geoipRows, err := db.Query("SELECT value FROM rules WHERE (type='geoip' OR type='geosite') AND policy LIKE 'proxy%'")
 	if err == nil {
 		for geoipRows.Next() {
 			var tag string
