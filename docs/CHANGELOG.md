@@ -10,6 +10,7 @@
 ### 🔐 Security & Stability
 
 ### Fixed
+- **OSPF Route Injection (Mode B/C)**: 彻底修复了通过 UI 切换路由模式时 FRR 配置不重载，以及 Mode B 遗漏静态 Fake-IP 路由分发的致命 BUG。现在 Mode B 纯 Fake-IP 与 Mode C 真实 GeoIP 均能完美将 OSPF LSA 注入至主路由。
 - **DNS Configuration Regression**: 修复了 `applyMosdnsConfig()` 遗漏读取数据库的问题，现在用户在面板保存的 `dns_local`, `dns_remote`, `dns_lazy` 配置可以正确下发并真正生效至 Mosdns 引擎。
 - **SSH Security (MITM)**: 强化远程节点部署架构。移除了高危的 `InsecureIgnoreHostKey()`，引入了基于 `known_hosts` 的 TOFU (Trust On First Use) 机制，现在服务端能有效抵御针对部署链路的中间人劫持攻击。
 - **Code Quality**: 移除了 `main.go` 中紧随 `log.Fatal` 的多余数据库 PRAGMA 写入死代码，提升代码健壮性。
