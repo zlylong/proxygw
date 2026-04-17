@@ -1,6 +1,6 @@
 # ProxyGW Changelog
 
-## 2026-04-17 (v1.4.0-rc.1: Pre-release)
+## 2026-04-17 (v1.4.5: Stable Release)
 
 ### 🚀 Architecture Refactoring (3-Mode Routing)
 - **Mode A (全局网关接管)**: 专门针对新手和普通网络环境。启用 Nftables TProxy 强行接管所有物理流量，同时在底层强制终止 FRR (OSPF) 进程，彻底阻断任何不必要的路由通告，确保零路由污染。
