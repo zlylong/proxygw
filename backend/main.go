@@ -329,39 +329,6 @@ func triggerCronReload() {
 }
 
 
-func subscriptionUpdater() {
-	for {
-		rows, err := db.Query("SELECT id, url, update_interval, last_update FROM subscriptions WHERE active = 1 AND auto_update = 1")
-		if err == nil {
-			for rows.Next() {
-				var id, interval int
-				var url string
-				var lastUpdate sql.NullString
-				if err := rows.Scan(&id, &url, &interval, &lastUpdate); err == nil {
-					shouldUpdate := false
-					if !lastUpdate.Valid || lastUpdate.String == "" {
-						shouldUpdate = true
-					} else {
-						lu, err := time.Parse("2006-01-02 15:04:05", lastUpdate.String)
-						if err == nil && time.Since(lu).Minutes() >= float64(interval) {
-							shouldUpdate = true
-						}
-					}
-					
-					if shouldUpdate {
-						log.Printf("[INFO] Auto-syncing subscription %d", id)
-						if err := syncSubscription(fmt.Sprintf("%d", id), url); err == nil {
-							db.Exec("UPDATE subscriptions SET last_update = ? WHERE id = ?", time.Now().Format("2006-01-02 15:04:05"), id)
-							applyXrayConfig()
-						}
-					}
-				}
-			}
-			rows.Close()
-		}
-		time.Sleep(5 * time.Minute)
-	}
-}
 
 func cronUpdater() {
 	for {
@@ -844,7 +811,6 @@ func main() {
 	syncFRRConfig()
 	go ospfController()
 	go cronUpdater()
-	go subscriptionUpdater()
 	applyMosdnsConfig()
 	applyXrayConfig()
 	
