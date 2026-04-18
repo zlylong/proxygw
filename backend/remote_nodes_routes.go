@@ -15,6 +15,7 @@ type RemoteNodeReq struct {
 	SSHHost       string `json:"ssh_host"`
 	SSHPort       int    `json:"ssh_port"`
 	SSHUser       string `json:"ssh_user"`
+	SSHHostKey    string `json:"ssh_host_key"`
 	SSHAuthType   string `json:"ssh_auth_type"`
 	SSHCredential string `json:"ssh_credential"`
 	Region        string `json:"region"`
@@ -117,10 +118,19 @@ func logAction(nodeId int64, action, status, logText string) {
 	db.Exec("INSERT INTO remote_node_logs (node_id, action, status, log_text) VALUES (?, ?, ?, ?)", nodeId, action, status, logText)
 }
 
+
+var deploySemaphore = make(chan struct{}, 3)
+
+func doDeployRoutineWrapper(id int64, req RemoteNodeReq, isUpdate bool, params map[string]interface{}) {
+	deploySemaphore <- struct{}{}
+	defer func() { <-deploySemaphore }()
+	doDeployRoutine(id, req, isUpdate, params)
+}
+
 func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[string]interface{}) {
 	logAction(id, "deploy", "running", "Connecting via SSH...")
 	
-	sshClient, err := remote_deploy.Connect(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential)
+	sshClient, err := remote_deploy.Connect(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
 	if err != nil {
 		db.Exec("UPDATE remote_nodes SET status = 'Failed' WHERE id = ?", id)
 		logAction(id, "deploy", "failed", err.Error())
@@ -218,14 +228,14 @@ func createAndDeployRemoteNode(c *gin.Context) {
 		return
 	}
 
-	res, err := db.Exec("INSERT INTO remote_nodes (name, type, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, region, status, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Deploying', ?)",
-		req.Name, req.Type, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, EncryptAES(req.SSHCredential), req.Region, req.Remark)
+	res, err := db.Exec("INSERT INTO remote_nodes (name, type, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, ssh_host_key, region, status, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Deploying', ?)",
+		req.Name, req.Type, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, EncryptAES(req.SSHCredential), req.SSHHostKey, req.Region, req.Remark)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to insert node"})
 		return
 	}
 	nodeId, _ := res.LastInsertId()
-	go doDeployRoutine(nodeId, req, false, nil)
+	go doDeployRoutineWrapper(nodeId, req, false, nil)
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Deployment started", "id": nodeId})
 }
 
@@ -237,11 +247,11 @@ func batchDeployRemoteNodes(c *gin.Context) {
 	}
 
 	for _, req := range reqs {
-		res, err := db.Exec("INSERT INTO remote_nodes (name, type, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, region, status, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Deploying', ?)",
-			req.Name, req.Type, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, EncryptAES(req.SSHCredential), req.Region, req.Remark)
+		res, err := db.Exec("INSERT INTO remote_nodes (name, type, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, ssh_host_key, region, status, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Deploying', ?)",
+			req.Name, req.Type, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, EncryptAES(req.SSHCredential), req.SSHHostKey, req.Region, req.Remark)
 		if err == nil {
 			nodeId, _ := res.LastInsertId()
-			go doDeployRoutine(nodeId, req, false, nil)
+			go doDeployRoutineWrapper(nodeId, req, false, nil)
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Batch deployment started for %d nodes", len(reqs))})
@@ -253,7 +263,7 @@ func deleteRemoteNode(c *gin.Context) {
 	req, err := fetchNodeReq(id)
 	if err == nil {
 		go func(req RemoteNodeReq) {
-			client, err := remote_deploy.Connect(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential)
+			client, err := remote_deploy.Connect(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
 			if err == nil {
 				defer client.Close()
 				if req.Type == "wg" {
@@ -281,15 +291,16 @@ func checkRemoteNode(c *gin.Context) {
 	id := c.Param("id")
 	var host, authType, credential, user, ntype string
 	var port int
-	err := db.QueryRow("SELECT ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, type FROM remote_nodes WHERE id = ?", id).
-		Scan(&host, &port, &user, &authType, &credential, &ntype)
+	var hostKey string
+	err := db.QueryRow("SELECT ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, ssh_host_key, type FROM remote_nodes WHERE id = ?", id).
+		Scan(&host, &port, &user, &authType, &credential, &hostKey, &ntype)
 	credential = DecryptAES(credential)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
 	
-	client, err := remote_deploy.Connect(host, port, user, authType, credential)
+	client, err := remote_deploy.Connect(host, port, user, authType, credential, hostKey)
 	if err != nil {
 		db.Exec("UPDATE remote_nodes SET status = 'Offline' WHERE id = ?", id)
 		logAction(0, "check", "failed", fmt.Sprintf("Node %s SSH check failed: %v", id, err))
@@ -311,8 +322,8 @@ func checkRemoteNode(c *gin.Context) {
 
 func fetchNodeReq(id string) (RemoteNodeReq, error) {
 	var req RemoteNodeReq
-	err := db.QueryRow("SELECT name, type, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, region, remark FROM remote_nodes WHERE id = ?", id).
-		Scan(&req.Name, &req.Type, &req.SSHHost, &req.SSHPort, &req.SSHUser, &req.SSHAuthType, &req.SSHCredential, &req.Region, &req.Remark)
+	err := db.QueryRow("SELECT name, type, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, ssh_host_key, region, remark FROM remote_nodes WHERE id = ?", id).
+		Scan(&req.Name, &req.Type, &req.SSHHost, &req.SSHPort, &req.SSHUser, &req.SSHAuthType, &req.SSHCredential, &req.SSHHostKey, &req.Region, &req.Remark)
 	req.SSHCredential = DecryptAES(req.SSHCredential)
 	return req, err
 }
@@ -351,7 +362,7 @@ func regenerateRemoteNodeParams(c *gin.Context) {
 	var intId int64
 	fmt.Sscanf(id, "%d", &intId)
 	
-	go doDeployRoutine(intId, req, true, nil)
+	go doDeployRoutineWrapper(intId, req, true, nil)
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Regeneration started"})
 }
 
@@ -404,6 +415,6 @@ func rollbackRemoteNode(c *gin.Context) {
 	var intId int64
 	fmt.Sscanf(id, "%d", &intId)
 	
-	go doDeployRoutine(intId, req, true, oldParams)
+	go doDeployRoutineWrapper(intId, req, true, oldParams)
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Rollback started"})
 }

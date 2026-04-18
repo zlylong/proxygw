@@ -442,6 +442,9 @@ func formatUpstreams(addrs string, useSocks bool) string {
 }
 
 func applyMosdnsConfig() error {
+	applyMutex.Lock()
+	defer applyMutex.Unlock()
+	log.Println("[AUDIT] Applying Mosdns Config")
 	var local, remote, lazyStr string
 
 	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local); err != nil {
@@ -489,6 +492,9 @@ func applyMosdnsConfig() error {
 }
 
 func applyXrayConfig() error {
+	applyMutex.Lock()
+	defer applyMutex.Unlock()
+	log.Println("[AUDIT] Applying Xray Config")
 
 	var mode string
 	db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)

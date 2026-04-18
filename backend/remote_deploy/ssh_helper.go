@@ -2,13 +2,13 @@ package remote_deploy
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
-	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 	"net"
-	"os"
-	"path/filepath"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // SSHClient wrapper
@@ -16,48 +16,24 @@ type SSHClient struct {
 	client *ssh.Client
 }
 
-// Connect establishes an SSH connection using either password or private key
-
-func getKnownHostsPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".ssh", "known_hosts")
-}
-
-func getHostKeyCallback() ssh.HostKeyCallback {
-	path := getKnownHostsPath()
-	os.MkdirAll(filepath.Dir(path), 0700)
-
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		os.WriteFile(path, []byte(""), 0600)
-	}
-
+func getStrictHostKeyCallback(expectedHostKey string) ssh.HostKeyCallback {
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-		hkCallback, err := knownhosts.New(path)
-		if err != nil {
-			return fmt.Errorf("failed to load known_hosts: %v", err)
+		fingerprint := "SHA256:" + base64.RawStdEncoding.EncodeToString(func(k []byte) []byte { h := sha256.Sum256(k); return h[:] }(key.Marshal()))
+		
+		if expectedHostKey == "" {
+			return fmt.Errorf("Strict Host Key checking failed. The server's fingerprint is %s. Please update the node configuration with this fingerprint to connect securely.", fingerprint)
 		}
-
-		err = hkCallback(hostname, remote, key)
-		if err != nil {
-			keyErr, ok := err.(*knownhosts.KeyError)
-			if ok && len(keyErr.Want) == 0 {
-				f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
-				if err != nil {
-					return err
-				}
-				defer f.Close()
-
-				knownHostLine := knownhosts.Line([]string{hostname}, key)
-				_, err = f.WriteString(knownHostLine + "\n")
-				return err
-			}
-			return err
+		
+		if expectedHostKey == fingerprint || expectedHostKey == base64.StdEncoding.EncodeToString(key.Marshal()) {
+			return nil
 		}
-		return nil
+		
+		return fmt.Errorf("Host key verification failed! Expected %s but got %s", expectedHostKey, fingerprint)
 	}
 }
 
-func Connect(host string, port int, user string, authType string, credential string) (*SSHClient, error) {
+// Connect establishes an SSH connection using either password or private key
+func Connect(host string, port int, user string, authType string, credential string, expectedHostKey string) (*SSHClient, error) {
 	var authMethod ssh.AuthMethod
 
 	if authType == "password" {
@@ -75,7 +51,7 @@ func Connect(host string, port int, user string, authType string, credential str
 	config := &ssh.ClientConfig{
 		User:            user,
 		Auth:            []ssh.AuthMethod{authMethod},
-		HostKeyCallback: getHostKeyCallback(),
+		HostKeyCallback: getStrictHostKeyCallback(expectedHostKey),
 		Timeout:         10 * time.Second,
 	}
 

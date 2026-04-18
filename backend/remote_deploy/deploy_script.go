@@ -1,20 +1,15 @@
 package remote_deploy
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
 
 func GenerateWGInstallScript(port int, serverPriv, clientPub, tunnelAddr string) string {
-	script := `#!/bin/bash
-set -e
-export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y wireguard iptables iproute2 curl
-echo net.ipv4.ip_forward=1 > /etc/sysctl.d/99-wireguard-forward.conf
-sysctl -p /etc/sysctl.d/99-wireguard-forward.conf
-cat << 'WGCFG' > /etc/wireguard/wg0.conf
-[Interface]
+	clientIP := strings.Replace(tunnelAddr, ".1/24", ".2/32", 1)
+	wgConfig := fmt.Sprintf(`[Interface]
 PrivateKey = %s
 Address = %s
 ListenPort = %d
@@ -24,21 +19,69 @@ PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -m c
 [Peer]
 PublicKey = %s
 AllowedIPs = %s
-WGCFG
-systemctl enable wg-quick@wg0
-systemctl restart wg-quick@wg0
-`
+`, serverPriv, tunnelAddr, port, clientPub, clientIP)
 
-	clientIP := strings.Replace(tunnelAddr, ".1/24", ".2/32", 1)
-	return fmt.Sprintf(script, serverPriv, tunnelAddr, port, clientPub, clientIP)
-}
+	wgConfigBase64 := base64.StdEncoding.EncodeToString([]byte(wgConfig))
 
-func GenerateVlessRealityInstallScript(port int, uuid, privateKey, shortId, serverName, dest string) string {
 	script := `#!/bin/bash
 set -e
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y curl unzip
+apt-get install -y wireguard iptables iproute2 curl
+echo net.ipv4.ip_forward=1 > /etc/sysctl.d/99-wireguard-forward.conf
+sysctl -p /etc/sysctl.d/99-wireguard-forward.conf
+echo "%s" | base64 -d > /etc/wireguard/wg0.conf
+systemctl enable wg-quick@wg0
+systemctl restart wg-quick@wg0
+`
+	return fmt.Sprintf(script, wgConfigBase64)
+}
+
+func GenerateVlessRealityInstallScript(port int, uuid, privateKey, shortId, serverName, dest string) string {
+	config := map[string]interface{}{
+		"log": map[string]interface{}{"loglevel": "warning"},
+		"inbounds": []map[string]interface{}{
+			{
+				"listen": "0.0.0.0",
+				"port":   port,
+				"protocol": "vless",
+				"settings": map[string]interface{}{
+					"clients": []map[string]interface{}{
+						{"id": uuid, "flow": "xtls-rprx-vision"},
+					},
+					"decryption": "none",
+				},
+				"streamSettings": map[string]interface{}{
+					"network": "tcp",
+					"security": "reality",
+					"realitySettings": map[string]interface{}{
+						"show": false,
+						"dest": dest,
+						"xver": 0,
+						"serverNames": []string{serverName},
+						"privateKey": privateKey,
+						"shortIds": []string{shortId},
+					},
+				},
+				"sniffing": map[string]interface{}{
+					"enabled": true,
+					"destOverride": []string{"http", "tls", "quic"},
+				},
+			},
+		},
+		"outbounds": []map[string]interface{}{
+			{"protocol": "freedom", "tag": "direct"},
+		},
+	}
+
+	configBytes, _ := json.Marshal(config)
+	configBase64 := base64.StdEncoding.EncodeToString(configBytes)
+
+	script := `#!/bin/bash
+set -e
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y curl unzip coreutils
 mkdir -p /usr/local/etc/xray
 mkdir -p /usr/local/share/xray
 curl -L -H "Cache-Control: no-cache" -o xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
@@ -49,55 +92,7 @@ mv /usr/local/bin/xray-core/geosite.dat /usr/local/share/xray/
 chmod +x /usr/local/bin/xray
 rm -rf xray.zip /usr/local/bin/xray-core
 
-cat << 'XCFG' > /usr/local/etc/xray/config.json
-{
-  "log": {
-    "loglevel": "warning"
-  },
-  "inbounds": [
-    {
-      "listen": "0.0.0.0",
-      "port": %d,
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "%s",
-            "flow": "xtls-rprx-vision"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "%s",
-          "xver": 0,
-          "serverNames": [
-            "%s"
-          ],
-          "privateKey": "%s",
-          "shortIds": [
-            "%s"
-          ]
-        }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls", "quic"]
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "tag": "direct"
-    }
-  ]
-}
-XCFG
+echo "%s" | base64 -d > /usr/local/etc/xray/config.json
 
 cat << 'XSRV' > /etc/systemd/system/xray.service
 [Unit]
@@ -124,6 +119,5 @@ systemctl daemon-reload
 systemctl enable xray
 systemctl restart xray
 `
-
-	return fmt.Sprintf(script, port, uuid, dest, serverName, privateKey, shortId)
+	return fmt.Sprintf(script, configBase64)
 }
