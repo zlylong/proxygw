@@ -20,13 +20,19 @@ jobs:
         with:
           go-version: '1.24'
 
+      - name: Install cross-compiler
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
       - name: Build Backend
         run: |
           cd backend
           CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o proxygw-backend-linux-amd64 .
+          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build -o proxygw-backend-linux-arm64 .
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: backend/proxygw-backend-linux-amd64
+          files: |
+            backend/proxygw-backend-linux-amd64
+            backend/proxygw-backend-linux-arm64
           generate_release_notes: true
