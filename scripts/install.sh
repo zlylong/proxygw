@@ -89,35 +89,6 @@ net.ipv4.tcp_fastopen = 3
 SYSCTL_EOF
 sysctl --system || true
 
-echo "Applying strict anti-loop Nftables rules..."
-cat << 'NFT_EOF' > /etc/nftables.conf
-#!/usr/sbin/nft -f
-flush ruleset
-table inet proxygw {
-    chain prerouting {
-        type filter hook prerouting priority mangle; policy accept;
-        # Xray local output MUST bypass TProxy to prevent loop
-        meta mark 0x02 return
-        # Ignore LAN / Multicast / Broadcast traffic
-        ip daddr { 127.0.0.0/8, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 224.0.0.0/4, 255.255.255.255/32 } return
-        # Drop IPv6 traffic to prevent un-proxied leak when DNS resolves AAAA
-        meta nfproto ipv6 drop
-        # TProxy all remaining IPv4 traffic
-        meta l4proto { tcp, udp } mark set 1 tproxy ip to 127.0.0.1:12345 accept
-    }
-    chain output {
-        type route hook output priority mangle; policy accept;
-        # Xray local output MUST bypass TProxy to prevent loop
-        meta mark 0x02 return
-        # Ignore LAN / Multicast / Broadcast traffic
-        ip daddr { 127.0.0.0/8, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 224.0.0.0/4, 255.255.255.255/32 } return
-        # TProxy tag for localhost proxy
-        meta l4proto { tcp, udp } mark set 1 accept
-    }
-}
-NFT_EOF
-systemctl enable nftables
-nft -f /etc/nftables.conf || true
 
 echo "[3/6] Setting up directory structure..."
 mkdir -p "$REPO_DIR/config"
@@ -171,6 +142,36 @@ chmod +x "$REPO_DIR/core/mosdns/mosdns" || true
 
 cp "$REPO_DIR/systemd/mosdns.service" /etc/systemd/system/ || true
 cp "$REPO_DIR/systemd/xray.service" /etc/systemd/system/ || true
+
+echo "Applying strict anti-loop Nftables rules..."
+cat << 'NFT_EOF' > /etc/nftables.conf
+#!/usr/sbin/nft -f
+flush ruleset
+table inet proxygw {
+    chain prerouting {
+        type filter hook prerouting priority mangle; policy accept;
+        # Xray local output MUST bypass TProxy to prevent loop
+        meta mark 0x02 return
+        # Ignore LAN / Multicast / Broadcast traffic
+        ip daddr { 127.0.0.0/8, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 224.0.0.0/4, 255.255.255.255/32 } return
+        # Drop IPv6 traffic to prevent un-proxied leak when DNS resolves AAAA
+        meta nfproto ipv6 drop
+        # TProxy all remaining IPv4 traffic
+        meta l4proto { tcp, udp } mark set 1 tproxy ip to 127.0.0.1:12345 accept
+    }
+    chain output {
+        type route hook output priority mangle; policy accept;
+        # Xray local output MUST bypass TProxy to prevent loop
+        meta mark 0x02 return
+        # Ignore LAN / Multicast / Broadcast traffic
+        ip daddr { 127.0.0.0/8, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 224.0.0.0/4, 255.255.255.255/32 } return
+        # TProxy tag for localhost proxy
+        meta l4proto { tcp, udp } mark set 1 accept
+    }
+}
+NFT_EOF
+systemctl enable nftables
+nft -f /etc/nftables.conf || true
 
 echo "[6/6] Starting services..."
 systemctl daemon-reload
