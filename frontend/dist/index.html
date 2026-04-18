@@ -194,7 +194,7 @@
             </div>
             <nav class="flex-1 mt-6">
                 <ul class="space-y-2">
-                    <li v-for="tab in tabs" :key="tab.id">
+                    <li v-for="tab in tabs.filter(t => !(t.hideModeBC && sysStatus?.mode !== 'A'))" :key="tab.id">
                         <a href="#" @click.prevent="activeTab = tab.id; loadData()" 
                            :class="['flex items-center px-6 py-3 transition-colors duration-200', 
                                     activeTab === tab.id ? 'bg-blue-600 text-white border-l-4 border-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-white border-l-4 border-transparent']">
@@ -1290,7 +1290,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     { id: 'nodes', icon: 'fa-server', label: '节点管理' },
                     { id: 'remote_nodes', icon: 'fa-cloud-arrow-up', label: '节点自动部署' },
                     { id: 'rules', icon: 'fa-shield-halved', label: '路由分流规则' },
-                    { id: 'lan_acls', icon: 'fa-laptop-house', label: '设备分流规则' },
+                    { id: 'lan_acls', icon: 'fa-laptop-house', label: '设备分流规则', hideModeBC: true },
                     { id: 'dns', icon: 'fa-globe', label: 'DNS 设置' },
                     { id: 'ospf', icon: 'fa-route', label: 'OSPF 状态' },
                     { id: 'configs', icon: 'fa-file-code', label: '配置信息面板' },
