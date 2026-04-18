@@ -420,13 +420,13 @@ func applyMosdnsConfig() error {
 	var local, remote, lazyStr string
 
 	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local); err != nil {
-		log.Printf("[WARN] Failed to load dns_local: %v", err)
+		local = "119.29.29.29,223.5.5.5"
 	}
 	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_remote'").Scan(&remote); err != nil {
-		log.Printf("[WARN] Failed to load dns_remote: %v", err)
+		remote = "1.1.1.1,8.8.8.8"
 	}
 	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_lazy'").Scan(&lazyStr); err != nil {
-		log.Printf("[WARN] Failed to load dns_lazy: %v", err)
+		lazyStr = "true"
 	}
 
 	var proxyDomains []string

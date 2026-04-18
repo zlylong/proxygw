@@ -123,8 +123,8 @@ fi
 
 # Ultimate fallback if both git and API fail (GFW block / no IPv4)
 if [ -z "$PROXYGW_LATEST" ]; then
-    echo "Warning: API blocked. Using fallback version v1.4.10..."
-    PROXYGW_LATEST="v1.4.10"
+    echo "Warning: API blocked. Using fallback version v1.4.11..."
+    PROXYGW_LATEST="v1.4.11"
 fi
 if [ "$ARCH" = "x86_64" ]; then
     wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
@@ -263,7 +263,7 @@ nft -f /etc/nftables.conf || true
 
 echo "[6/6] Starting services..."
 systemctl daemon-reload
-systemctl enable --now proxygw mosdns xray || true
+systemctl enable proxygw mosdns xray || true
 
 # Force restart if already running to pick up updates and generate bootstrap if needed
 systemctl restart proxygw mosdns xray || true
