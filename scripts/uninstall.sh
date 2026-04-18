@@ -26,6 +26,14 @@ echo "[4/5] Removing kernel tunings..."
 rm -f /etc/sysctl.d/99-proxygw.conf
 sysctl --system || true
 
+
+echo "[4.5/5] Restoring DNS and systemd-resolved..."
+sed -i 's/DNSStubListener=no/#DNSStubListener=yes/' /etc/systemd/resolved.conf || true
+systemctl restart systemd-resolved 2>/dev/null || true
+chattr -i /etc/resolv.conf 2>/dev/null || true
+rm -f /etc/resolv.conf
+ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf 2>/dev/null || true
+
 echo "[5/5] Cleaning up directories..."
 read -p "Do you want to delete the /root/proxygw directory (including the database and configs)? [y/N]: " answer
 if [[ "$answer" =~ ^[Yy]$ ]]; then
