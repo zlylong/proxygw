@@ -907,22 +907,22 @@ PersistentKeepalive = 25
                         <div class="bg-[#1e1e1e] text-[#00ff00] font-mono p-4 rounded-lg flex-1 overflow-y-auto text-xs shadow-inner" ref="syslogsContainer" style="min-height: 400px; white-space: pre-wrap;">{{ syslogs[currentLogTab] || 'Loading logs...' }}</div>
                     </div>
 
-                    <!-- Xray Config -->
-                    <div v-else-if="activeTab === 'xray_config'" key="xray_config">
-                        <div class="flex justify-between items-center mb-4">
-                            <h2 class="text-xl font-bold">Xray Core 配置 (自动生成)</h2>
-                            <button @click="loadConfigs" class="text-gray-500 hover:text-blue-500"><i class="fa-solid fa-rotate"></i> 刷新</button>
+                    <!-- Configs Panel -->
+                    <div v-else-if="activeTab === 'configs'" key="configs" class="space-y-4 h-full flex flex-col pb-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <h2 class="text-xl font-bold">底层配置信息面板 (自动生成)</h2>
+                            <button @click="loadConfigs" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded text-sm transition">
+                                <i class="fa-solid fa-sync mr-1"></i>刷新
+                            </button>
                         </div>
-                        <pre class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-x-auto text-sm" style="height: 70vh;">{{ xrayConfigStr }}</pre>
-                    </div>
+                        
+                        <div class="flex border-b border-gray-200">
+                            <button @click="currentConfigTab = 'xray'" :class="{'border-blue-500 text-blue-600': currentConfigTab === 'xray', 'border-transparent text-gray-500 hover:text-gray-700': currentConfigTab !== 'xray'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Xray Core 配置</button>
+                            <button @click="currentConfigTab = 'mosdns'" :class="{'border-blue-500 text-blue-600': currentConfigTab === 'mosdns', 'border-transparent text-gray-500 hover:text-gray-700': currentConfigTab !== 'mosdns'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Mosdns 配置</button>
+                        </div>
 
-                    <!-- Mosdns Config -->
-                    <div v-else-if="activeTab === 'mosdns_config'" key="mosdns_config">
-                        <div class="flex justify-between items-center mb-4">
-                            <h2 class="text-xl font-bold">Mosdns 配置</h2>
-                            <button @click="loadConfigs" class="text-gray-500 hover:text-blue-500"><i class="fa-solid fa-rotate"></i> 刷新</button>
-                        </div>
-                        <pre class="bg-gray-900 text-yellow-400 p-4 rounded-lg overflow-x-auto text-sm" style="height: 70vh;">{{ mosdnsConfigStr }}</pre>
+                        <pre v-if="currentConfigTab === 'xray'" class="bg-[#1e1e1e] text-[#00ff00] p-4 rounded-lg flex-1 overflow-x-auto text-xs shadow-inner" style="min-height: 400px; margin-top: 0;">{{ xrayConfigStr }}</pre>
+                        <pre v-if="currentConfigTab === 'mosdns'" class="bg-[#1e1e1e] text-yellow-400 p-4 rounded-lg flex-1 overflow-x-auto text-xs shadow-inner" style="min-height: 400px; margin-top: 0;">{{ mosdnsConfigStr }}</pre>
                     </div>
 
                         </transition>
@@ -1291,8 +1291,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     { id: 'lan_acls', icon: 'fa-laptop-house', label: '设备分流规则' },
                     { id: 'dns', icon: 'fa-globe', label: 'DNS 设置' },
                     { id: 'ospf', icon: 'fa-route', label: 'OSPF 状态' },
-                    { id: 'xray_config', icon: 'fa-file-code', label: 'Xray 配置' },
-                    { id: 'mosdns_config', icon: 'fa-file-lines', label: 'Mosdns 配置' },
+                    { id: 'configs', icon: 'fa-file-code', label: '配置信息面板' },
                     { id: 'syslogs', icon: 'fa-terminal', label: '核心日志面板' },
                 ];
 
@@ -1329,6 +1328,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 
                 const xrayConfigStr = ref("");
                 const mosdnsConfigStr = ref("");
+                const currentConfigTab = ref("xray");
 
                 const loadConfigs = async () => {
                     apiFetch('/api/config/xray').then(r => r.text()).then(t => xrayConfigStr.value = t);
@@ -1564,7 +1564,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     if(token.value && activeTab.value === 'remote_nodes') loadRemoteNodes();
                     if(token.value && activeTab.value === 'rules') { apiFetch('/api/rules').then(r=>r.json()).then(d => rules.value = d); if(categories.value.geosite.length===0) apiFetch('/api/rules/categories').then(r=>r.json()).then(d => categories.value = d); }
                     if(token.value && activeTab.value === 'ospf') apiFetch('/api/ospf').then(r=>r.json()).then(d => ospf.value = d);
-                    if(token.value && (activeTab.value === 'xray_config' || activeTab.value === 'mosdns_config')) loadConfigs();
+                    if(token.value && activeTab.value === 'configs') loadConfigs();
  
 };
 
@@ -1667,7 +1667,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                                 return { syslogs, currentLogTab, syslogsContainer, fetchSyslogs, traffic, formatBytes,
                     connections, connSearch, filteredConnections, lanAcls, defaultLanPolicy,
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
-
+                    currentConfigTab,
                     loadData,
                     isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
