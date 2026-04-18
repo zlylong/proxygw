@@ -21,6 +21,10 @@ import (
 
 func registerNodeRoutes(api *gin.RouterGroup) {
 	api.GET("/nodes", func(c *gin.Context) {
+		var defNodeStr string
+		db.QueryRow("SELECT value FROM settings WHERE key='default_node_id'").Scan(&defNodeStr)
+		defNodeId, _ := strconv.Atoi(defNodeStr)
+
 		rows, err := db.Query("SELECT id, name, COALESCE(grp, ''), type, address, port, uuid, active, ping, COALESCE(params, '{}') FROM nodes")
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
@@ -44,7 +48,39 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db rows error"})
 			return
 		}
+		
+		var activeCount int
+		for _, n := range nodes {
+			if n["active"] == true || n["active"] == int64(1) || n["active"] == 1 {
+				activeCount++
+			}
+		}
+		
+		if activeCount == 1 {
+			for _, n := range nodes {
+				if n["active"] == true || n["active"] == int64(1) || n["active"] == 1 {
+					n["is_default"] = true
+				} else {
+					n["is_default"] = false
+				}
+			}
+		} else {
+			for _, n := range nodes {
+				if idVal, ok := n["id"].(int); ok && idVal == defNodeId {
+					n["is_default"] = true
+				} else {
+					n["is_default"] = false
+				}
+			}
+		}
+
 		c.JSON(http.StatusOK, nodes)
+	})
+
+	api.PUT("/nodes/:id/default", func(c *gin.Context) {
+		db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('default_node_id', ?)", c.Param("id"))
+		scheduleApply()
+		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
 	api.POST("/nodes", func(c *gin.Context) {

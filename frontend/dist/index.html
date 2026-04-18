@@ -739,16 +739,25 @@ PersistentKeepalive = 25
                                 </datalist>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">策略绑定 (对应的节点/出口)</label>
-                                <select v-model="newRule.policy" class="border border-gray-300 rounded px-3 py-2 w-48">
-                                    <option value="proxy">默认代理 (Proxy)</option>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">路由策略</label>
+                                <select v-model="newRule.action" class="border border-gray-300 rounded px-3 py-2 w-40">
+                                    <option value="proxy">全局代理 (Proxy)</option>
                                     <option value="direct">直连 (Direct)</option>
                                     <option value="block">拦截 (Block)</option>
-                                    <optgroup label="指定节点">
-                                        <option v-for="node in nodes" :key="node.id" :value="'proxy-' + node.id">
-                                            {{ node.name }}
-                                        </option>
-                                    </optgroup>
+                                    <option value="node">指定单节点</option>
+                                    <option value="ha">主备容灾 (HA)</option>
+                                </select>
+                            </div>
+                            <div v-if="newRule.action === 'node' || newRule.action === 'ha'">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">主用节点</label>
+                                <select v-model="newRule.primary" class="border border-gray-300 rounded px-3 py-2 w-40">
+                                    <option v-for="node in nodes" :key="node.id" :value="node.id">{{ node.name }}</option>
+                                </select>
+                            </div>
+                            <div v-if="newRule.action === 'ha'">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">备用节点 (Fallback)</label>
+                                <select v-model="newRule.standby" class="border border-gray-300 rounded px-3 py-2 w-40">
+                                    <option v-for="node in nodes" :key="node.id" :value="node.id">{{ node.name }}</option>
                                 </select>
                             </div>
                             <div>
@@ -772,8 +781,12 @@ PersistentKeepalive = 25
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ rule.value }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap">
                                             <span class="px-2 py-1 rounded text-xs font-bold"
-                                                  :class="{'bg-green-100 text-green-800': rule.policy==='direct', 'bg-blue-100 text-blue-800': rule.policy.startsWith('proxy'), 'bg-red-100 text-red-800': rule.policy==='block'}">
-                                                {{ rule.policy.startsWith('proxy-') ? (nodes.find(n => 'proxy-'+n.id === rule.policy)?.name || rule.policy) : rule.policy }}
+                                                  :class="{'bg-green-100 text-green-800': rule.policy==='direct', 'bg-blue-100 text-blue-800': rule.policy==='proxy' || rule.policy.startsWith('proxy-'), 'bg-red-100 text-red-800': rule.policy==='block', 'bg-purple-100 text-purple-800': rule.policy.startsWith('ha-')}">
+                                                {{ rule.policy === 'proxy' ? 'Proxy (全局)' : 
+                                                   rule.policy === 'direct' ? 'Direct (直连)' : 
+                                                   rule.policy === 'block' ? 'Block (拦截)' : 
+                                                   rule.policy.startsWith('proxy-') ? '节点: ' + (nodes.find(n => n.id == rule.policy.split('-')[1])?.name || rule.policy) : 
+                                                   rule.policy.startsWith('ha-') ? '主备: ' + (nodes.find(n => n.id == rule.policy.split('-')[1])?.name || '?') + ' -> ' + (nodes.find(n => n.id == rule.policy.split('-')[2])?.name || '?') : rule.policy }}
                                             </span>
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-right">
@@ -1376,6 +1389,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     loadRemoteNodes();
                 };
 
+                const setDefaultNode = async (id) => { await apiFetch(`/api/nodes/${id}/default`, {method: "PUT"}); showToast("已设为默认节点"); loadData(); };
                 const loadNodeHistory = async (id) => {
                     const res = await apiFetch('/api/remote_nodes/' + id + '/history');
                     nodeHistory.value = await res.json();
@@ -1563,10 +1577,19 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                 const deleteNode = (id) => { customConfirm("删除此节点？", async () => { await apiFetch(`/api/nodes/${id}`, {method: 'DELETE'}); loadData(); }); };
                 const toggleNode = async (id) => { await apiFetch(`/api/nodes/${id}/toggle`, {method: 'PUT'}); loadData(); };
 
-                const newRule = ref({ type: 'domain', value: '', policy: 'proxy' });
+                const newRule = ref({ type: 'domain', value: '', action: 'proxy', primary: '', standby: '', policy: 'proxy' });
                 const addRule = async () => {
                     if(!newRule.value.value) return showToast("匹配值不能为空");
-                    await apiFetch('/api/rules', { method: 'POST', body: JSON.stringify({ Type: newRule.value.type, Value: newRule.value.value, Policy: newRule.value.policy }) });
+                    let finalPolicy = newRule.value.action;
+                    if(finalPolicy === 'node') {
+                        if(!newRule.value.primary) return showToast("请选择指定节点");
+                        finalPolicy = 'proxy-' + newRule.value.primary;
+                    } else if(finalPolicy === 'ha') {
+                        if(!newRule.value.primary || !newRule.value.standby) return showToast("请选择主备节点");
+                        if(newRule.value.primary === newRule.value.standby) return showToast("主备节点不能相同");
+                        finalPolicy = 'ha-' + newRule.value.primary + '-' + newRule.value.standby;
+                    }
+                    await apiFetch('/api/rules', { method: 'POST', body: JSON.stringify({ Type: newRule.value.type, Value: newRule.value.value, Policy: finalPolicy }) });
                     newRule.value.value = '';
                     loadData();
                 };
@@ -1604,7 +1627,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     showSubModal, subForm, showAclModal, aclForm, openAddSub, saveSub, deleteSub, syncSub, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
 
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>

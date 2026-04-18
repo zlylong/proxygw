@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"strconv"
 	"sync"
 	"time"
 
@@ -472,6 +473,11 @@ func applyXrayConfig() error {
 		return err
 	}
 	defer rows.Close()
+	var defNodeStr string
+	db.QueryRow("SELECT value FROM settings WHERE key='default_node_id'").Scan(&defNodeStr)
+	defaultNodeId, _ := strconv.Atoi(defNodeStr)
+	
+	var activeIds []int
 	var proxyTags []string
 	for rows.Next() {
 		var name, ntype, address, uuid, paramsStr string
@@ -480,6 +486,8 @@ func applyXrayConfig() error {
 			continue
 		}
 
+
+		activeIds = append(activeIds, id)
 
 		ntypeLow := strings.ToLower(ntype)
 
@@ -530,7 +538,7 @@ func applyXrayConfig() error {
 
 		outbound := params
 		outbound["protocol"] = ntypeLow
-		outbound["tag"] = fmt.Sprintf("proxy-%d", id)
+		outbound["tag"] = fmt.Sprintf("proxy-%d-out", id)
 
 		if settings, ok := outbound["settings"].(map[string]interface{}); ok {
 			if vnext, ok := settings["vnext"].([]interface{}); ok && len(vnext) > 0 {
@@ -570,7 +578,7 @@ func applyXrayConfig() error {
 				outbound["streamSettings"] = map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}}
 			}
 			config["outbounds"] = append(config["outbounds"].([]map[string]interface{}), outbound)
-			proxyTags = append(proxyTags, fmt.Sprintf("proxy-%d", id))
+			proxyTags = append(proxyTags, fmt.Sprintf("proxy-%d-out", id))
 		}
 	}
 
@@ -587,7 +595,26 @@ func applyXrayConfig() error {
 		if err := rRows.Scan(&rtype, &value, &policy); err != nil {
 			continue
 		}
-		rule := map[string]interface{}{"type": "field", "outboundTag": policy}
+		rule := map[string]interface{}{"type": "field"}
+
+		if policy == "direct" || policy == "block" {
+			rule["outboundTag"] = policy
+		} else if policy == "proxy" {
+			rule["balancerTag"] = "proxy-balancer"
+		} else if strings.HasPrefix(policy, "proxy-") {
+			// Single node binding (e.g. proxy-1)
+			rule["outboundTag"] = policy + "-out"
+		} else if strings.HasPrefix(policy, "ha-") {
+			// HA Mode (e.g. ha-1-2)
+			parts := strings.Split(strings.TrimPrefix(policy, "ha-"), "-")
+			if len(parts) == 2 {
+				rule["balancerTag"] = "bal-" + policy
+			} else {
+				rule["outboundTag"] = "proxy"
+			}
+		} else {
+			rule["outboundTag"] = policy
+		}
 
 		if rtype == "geosite" || rtype == "domain" {
 			rule["domain"] = []string{rtype + ":" + value}
@@ -641,12 +668,45 @@ func applyXrayConfig() error {
 			},
 		}
 		
-		for _, r := range rules {
-			if r["outboundTag"] == "proxy" {
-				delete(r, "outboundTag")
-				r["balancerTag"] = "proxy-balancer"
+		customBalancers := make(map[string]map[string]interface{})
+		actualDefault := 0
+		if len(activeIds) == 1 {
+			actualDefault = activeIds[0]
+		} else {
+			for _, aid := range activeIds {
+				if aid == defaultNodeId {
+					actualDefault = aid
+					break
+				}
 			}
 		}
+
+		for _, r := range rules {
+			if r["outboundTag"] == "proxy" {
+				if actualDefault > 0 {
+					r["outboundTag"] = fmt.Sprintf("proxy-%d-out", actualDefault)
+				} else {
+					delete(r, "outboundTag")
+					r["balancerTag"] = "proxy-balancer"
+				}
+			}
+			if bTag, ok := r["balancerTag"].(string); ok && strings.HasPrefix(bTag, "bal-ha-") {
+				parts := strings.Split(strings.TrimPrefix(bTag, "bal-ha-"), "-")
+				if len(parts) == 2 {
+					customBalancers[bTag] = map[string]interface{}{
+						"tag": bTag,
+						"selector": []string{"proxy-" + parts[0] + "-out"},
+						"fallbackTag": "proxy-" + parts[1] + "-out",
+					}
+				}
+			}
+		}
+		
+		balancers := routing["balancers"].([]map[string]interface{})
+		for _, cb := range customBalancers {
+			balancers = append(balancers, cb)
+		}
+		routing["balancers"] = balancers
 	}
 	config["routing"].(map[string]interface{})["rules"] = rules
 
