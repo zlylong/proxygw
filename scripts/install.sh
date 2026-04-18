@@ -99,7 +99,7 @@ mkdir -p "$REPO_DIR/core/frr"
 mkdir -p "$REPO_DIR/systemd"
 
 echo "[4/6] Downloading backend from GitHub Releases..."
-PROXYGW_LATEST=$(curl --retry 5 --connect-timeout 5 -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | grep "tag_name": | sed -E "s/.*\"([^\"]+)\".*/\\1/") || true
+PROXYGW_LATEST=$(git describe --tags --abbrev=0 2>/dev/null || curl --retry 5 --retry-max-time 30 --connect-timeout 5 -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | grep "tag_name": | sed -E "s/.*\"([^\"]+)\".*/\\1/" || true)
 if [ -z "$PROXYGW_LATEST" ]; then
     echo "Error: Failed to fetch ProxyGW latest version!"
     exit 1

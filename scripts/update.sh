@@ -14,7 +14,7 @@ git reset --hard origin/main
 
 echo "[2/4] Downloading backend from GitHub Releases..."
 ARCH=$(uname -m)
-PROXYGW_LATEST=$(curl --retry 5 --connect-timeout 5 -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | grep "tag_name": | sed -E "s/.*\"([^\"]+)\".*/\\1/") || true
+PROXYGW_LATEST=$(git describe --tags --abbrev=0 2>/dev/null || curl --retry 5 --retry-max-time 30 --connect-timeout 5 -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | grep "tag_name": | sed -E "s/.*\"([^\"]+)\".*/\\1/" || true)
 if [ -z "$PROXYGW_LATEST" ]; then
     echo "Error: Failed to fetch ProxyGW latest version!"
     exit 1
