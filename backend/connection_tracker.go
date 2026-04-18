@@ -59,12 +59,35 @@ func StartConnectionTracker() {
 		var reader *bufio.Reader
 
 		for {
-			if file == nil {
+						if file == nil {
 				file, err = os.Open(logPath)
 				if err != nil {
 					time.Sleep(2 * time.Second)
 					continue
 				}
+				// Parse existing lines before tailing
+				scanner := bufio.NewScanner(file)
+				for scanner.Scan() {
+					line := scanner.Text()
+					matches := logRegex.FindStringSubmatch(line)
+					if len(matches) == 6 {
+						record := ConnectionRecord{
+							Time:    matches[1],
+							Client:  matches[2],
+							Network: matches[3],
+							Target:  matches[4],
+							Policy:  matches[5],
+						}
+						if strings.HasPrefix(record.Client, "127.0.0.1") || record.Policy == "api" || record.Policy == "dns-out" {
+							continue
+						}
+						connRingMutex.Lock()
+						connRing.Value = record
+						connRing = connRing.Next()
+						connRingMutex.Unlock()
+					}
+				}
+				// Seek to the end to start tailing
 				file.Seek(0, 2)
 				reader = bufio.NewReader(file)
 			}
