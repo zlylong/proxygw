@@ -1,5 +1,27 @@
 # ProxyGW Changelog
 
+## 2026-04-18 (v1.5.0-alpha.1: Next-Gen Architecture Roadmap)
+
+### 🚀 1. 刚需功能：机场订阅与高可用
+- **外部订阅导入 (Subscription Manager)**：支持解析 Base64 / SIP002 / Clash YAML 格式的订阅链接同步，并支持每日自动更新。打破目前偏向“自建节点”的限制，满足绝大多数机场用户的需求。
+- **故障转移与负载均衡 (Failover & Load Balancing)**：当当前节点被墙或宕机时，网关基于定时测速（URL Test / Ping）自动无缝切换到备用节点，避免单一节点故障导致全屋断网。
+
+### 📊 2. 可观测性：实时流量与连接看板 (排障利器)
+- **全景流量大盘**：新增实时的上下行网速（Speed）仪表盘和历史流量统计（过去 24 小时流量消耗）。
+- **实时连接追踪 (Active Connections)**：杀手级排障功能。管理员可在 Web 实时查看：内网 IP 在什么时间、通过哪个节点（或直连）、访问了哪个域名（甚至 SNI）。快速定位国内 App 变慢或无法打开的“规则误判”问题。
+
+### 🛡 3. 精细化管控：局域网设备黑白名单 (ACL)
+- **基于 IP/MAC 的内网分流**：提供 UI 界面设定设备级规则，不再一刀切：
+  - `192.168.20.50` (Apple TV) -> 强制走节点 A
+  - `192.168.20.60` (智能家居/门锁) -> 强制 Direct 直连
+  - `192.168.20.100` (熊孩子iPad) -> 定时 (如晚上10点后) Block 拦截
+
+### ⚡️ 4. 协议与前沿生态扩展
+- **UDP 暴力协议支持 (Hysteria2 / TUIC)**：在已有的 WG/VLESS 基础上，增加对弱网环境（如晚高峰移动宽带）表现更佳的基于 QUIC/UDP 的 Hysteria2 / TUIC 协议部署与接入。
+- **优雅的 IPv6 代理方案 (NAT66)**：探索在 Xray 层开启 IPv6 嗅探，并在 Nftables 做 TProxy6 劫持，解锁纯 IPv6 站点，满足极客用户的终极双栈需求。
+
+
+
 ## 2026-04-18 (v1.4.10: Zero Compilation & Robust Deployment)
 
 ### 🚀 Zero Compilation Architecture
