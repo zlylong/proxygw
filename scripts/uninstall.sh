@@ -28,8 +28,10 @@ sysctl --system || true
 
 
 echo "[4.5/5] Restoring DNS and systemd-resolved..."
-sed -i 's/DNSStubListener=no/#DNSStubListener=yes/' /etc/systemd/resolved.conf || true
-systemctl restart systemd-resolved 2>/dev/null || true
+if [ -f /etc/systemd/resolved.conf ]; then
+    sed -i 's/DNSStubListener=no/#DNSStubListener=yes/' /etc/systemd/resolved.conf || true
+    systemctl restart systemd-resolved 2>/dev/null || true
+fi
 chattr -i /etc/resolv.conf 2>/dev/null || true
 rm -f /etc/resolv.conf
 ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf 2>/dev/null || true

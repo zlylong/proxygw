@@ -55,15 +55,17 @@ nameserver 1.1.1.1
 RESOLV_EOF
 
 # Free port 53 from systemd-resolved
-if grep -q "#DNSStubListener=yes" /etc/systemd/resolved.conf || grep -q "DNSStubListener=yes" /etc/systemd/resolved.conf || ! grep -q "DNSStubListener=no" /etc/systemd/resolved.conf; then
-    echo "Configuring systemd-resolved to free port 53..."
-    sed -i 's/#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
-    sed -i 's/DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
-    # Ensure it is set if not found
-    if ! grep -q "DNSStubListener=no" /etc/systemd/resolved.conf; then
-        echo "DNSStubListener=no" >> /etc/systemd/resolved.conf
+if [ -f /etc/systemd/resolved.conf ]; then
+    if grep -q "#DNSStubListener=yes" /etc/systemd/resolved.conf || grep -q "DNSStubListener=yes" /etc/systemd/resolved.conf || ! grep -q "DNSStubListener=no" /etc/systemd/resolved.conf; then
+        echo "Configuring systemd-resolved to free port 53..."
+        sed -i 's/#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
+        sed -i 's/DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
+        # Ensure it is set if not found
+        if ! grep -q "DNSStubListener=no" /etc/systemd/resolved.conf; then
+            echo "DNSStubListener=no" >> /etc/systemd/resolved.conf
+        fi
+        systemctl restart systemd-resolved || true
     fi
-    systemctl restart systemd-resolved || true
 fi
 if ! grep -q "100 tproxy" /etc/iproute2/rt_tables; then
     echo "100 tproxy" >> /etc/iproute2/rt_tables
@@ -135,8 +137,8 @@ fi
 
 # Ultimate fallback if both git and API fail (GFW block / no IPv4)
 if [ -z "$PROXYGW_LATEST" ]; then
-    echo "Warning: API blocked. Using fallback version v1.4.12..."
-    PROXYGW_LATEST="v1.4.12"
+    echo "Warning: API blocked. Using fallback version v1.4.13..."
+    PROXYGW_LATEST="v1.4.13"
 fi
 if [ "$ARCH" = "x86_64" ]; then
     wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
