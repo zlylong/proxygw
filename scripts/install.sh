@@ -128,15 +128,15 @@ mkdir -p "$REPO_DIR/core/frr"
 mkdir -p "$REPO_DIR/systemd"
 
 echo "[4/6] Downloading backend from GitHub Releases..."
-PROXYGW_LATEST=$(curl -s https://api.github.com/repos/zlylong/proxygw/releases/latest | grep "tag_name": | sed -E "s/.*\"([^\"]+)\".*/\1/")
+PROXYGW_LATEST=$(curl -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | grep "tag_name": | sed -E "s/.*\"([^\"]+)\".*/\1/")
 if [ -z "$PROXYGW_LATEST" ]; then
     echo "Error: Failed to fetch ProxyGW latest version!"
     exit 1
 fi
 if [ "$ARCH" = "x86_64" ]; then
-    wget -qO "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
+    wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
 elif [ "$ARCH" = "aarch64" ]; then
-    wget -qO "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-arm64"
+    wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-arm64"
 fi
 chmod +x "$REPO_DIR/backend/proxygw-backend"
 
@@ -148,7 +148,7 @@ echo "[5.5/6] Verifying and Installing Core Binaries ($ARCH)..."
 if ! "$REPO_DIR/core/xray/xray" version >/dev/null 2>&1; then
     echo "Downloading Xray for $ARCH..."
     XRAY_URL="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${XRAY_ARCH}.zip"
-    wget -qO /tmp/xray.zip "$XRAY_URL"
+    wget -q -4 -O /tmp/xray.zip "$XRAY_URL"
     unzip -qo /tmp/xray.zip xray -d "$REPO_DIR/core/xray/"
     rm -f /tmp/xray.zip
 fi
@@ -157,10 +157,10 @@ chmod +x "$REPO_DIR/core/xray/xray" || true
 # Check and download Mosdns if it doesn't match the architecture or doesn't exist
 if ! "$REPO_DIR/core/mosdns/mosdns" version >/dev/null 2>&1; then
     echo "Downloading Mosdns for $ARCH..."
-    MOSDNS_LATEST=$(curl -s https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    MOSDNS_LATEST=$(curl -s -4 https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     if [ -n "$MOSDNS_LATEST" ]; then
         MOSDNS_URL="https://github.com/IrineSistiana/mosdns/releases/download/${MOSDNS_LATEST}/mosdns-linux-${MOSDNS_ARCH}.zip"
-        wget -qO /tmp/mosdns.zip "$MOSDNS_URL"
+        wget -q -4 -O /tmp/mosdns.zip "$MOSDNS_URL"
         unzip -qo /tmp/mosdns.zip mosdns -d "$REPO_DIR/core/mosdns/"
         rm -f /tmp/mosdns.zip
     else

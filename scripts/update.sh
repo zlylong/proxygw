@@ -14,15 +14,15 @@ git reset --hard origin/main
 
 echo "[2/4] Downloading backend from GitHub Releases..."
 ARCH=$(uname -m)
-PROXYGW_LATEST=$(curl -s https://api.github.com/repos/zlylong/proxygw/releases/latest | grep "tag_name": | sed -E "s/.*\"([^\"]+)\".*/\1/")
+PROXYGW_LATEST=$(curl -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | grep "tag_name": | sed -E "s/.*\"([^\"]+)\".*/\1/")
 if [ -z "$PROXYGW_LATEST" ]; then
     echo "Error: Failed to fetch ProxyGW latest version!"
     exit 1
 fi
 if [ "$ARCH" = "x86_64" ]; then
-    wget -qO "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
+    wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
 elif [ "$ARCH" = "aarch64" ]; then
-    wget -qO "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-arm64"
+    wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-arm64"
 fi
 chmod +x "$REPO_DIR/backend/proxygw-backend"
 
