@@ -920,8 +920,8 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const vlessParams = ref({ type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '', method: 'aes-256-gcm' });
                 const traffic = ref({ speed: { up: 0, down: 0 }, total_24h: { up: 0, down: 0 } });
                 const fetchTraffic = async () => {
-                    if (activeTab.value !== 'system') return;
                     try {
+                        
                         const res = await fetch('/api/traffic', { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') } });
                         if (res.ok) traffic.value = await res.json();
                     } catch (e) {}
@@ -1478,8 +1478,19 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     }
                 };
 
+                
+                const formatBytes = (bytes) => {
+                    if (bytes === undefined || bytes === null || isNaN(bytes)) return '0 B';
+                    if (bytes === 0) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+                };
+
                 const loadData = async (isInit = false) => {
                     if (token.value) apiFetch('/api/status').then(r=>r.json()).then(d => sysStatus.value = d);
+                    fetchTraffic();
                     if (token.value && (isInit === true || !initLoaded)) {
                         apiFetch('/api/cron').then(r=>r.json()).then(d => { if(d) { cron.value.enabled = d.enabled; cron.value.time = d.time || '04:00'; }});
                         apiFetch('/api/dns').then(r=>r.json()).then(d => dns.value = d);
@@ -1589,7 +1600,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
 
                 onMounted(() => { loadData(true); setInterval(() => loadData(false), 2000); });
 
-                                return {
+                                return { traffic, formatBytes,
                     connections, connSearch, filteredConnections, lanAcls, defaultLanPolicy,
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
 
