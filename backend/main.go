@@ -897,6 +897,7 @@ route-map OSPF-EXPORT permit 10
 
 func main() {
 	initDB()
+	go startTrafficMonitor()
 	syncFRRConfig()
 	go ospfController()
 	go cronUpdater()

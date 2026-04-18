@@ -867,14 +867,20 @@ PersistentKeepalive = 25
                             </div>
                         </div>
 
-                        <div class="bg-white p-6 rounded-lg shadow">
-                            <h3 class="text-lg font-medium border-b pb-2 mb-4">Xray 透明代理架构分析 (现行最佳实践)</h3>
-                            <ul class="space-y-3 text-sm text-gray-700">
-                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>底层接管:</strong> Nftables 仅做无脑 TProxy 劫持，全量导入 Xray</li>
-                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>流量嗅探:</strong> Sniffing 开启 (http / tls / fakedns 还原真实域名)</li>
-                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>零延迟响应:</strong> 结合 Mosdns 瞬时返回 198.18.x.x 假 IP 消除等待</li>
-                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>路由中枢:</strong> 彻底由 Xray 内部 routing 引擎执行精确的内外网分流</li>
-                            </ul>
+                        <div class="bg-white p-6 rounded-lg shadow flex flex-col justify-center">
+                            <h3 class="text-lg font-medium border-b pb-2 mb-4">全景流量大盘</h3>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="bg-blue-50 p-4 rounded-lg flex flex-col items-center justify-center">
+                                    <span class="text-blue-500 text-sm font-bold mb-1"><i class="fa-solid fa-arrow-up mr-1"></i>上行速度</span>
+                                    <span class="text-2xl font-mono text-gray-800">{{ formatBytes(traffic.speed.up) }}/s</span>
+                                    <span class="text-xs text-gray-500 mt-2">24H 累计: {{ formatBytes(traffic.total_24h.up) }}</span>
+                                </div>
+                                <div class="bg-green-50 p-4 rounded-lg flex flex-col items-center justify-center">
+                                    <span class="text-green-500 text-sm font-bold mb-1"><i class="fa-solid fa-arrow-down mr-1"></i>下行速度</span>
+                                    <span class="text-2xl font-mono text-gray-800">{{ formatBytes(traffic.speed.down) }}/s</span>
+                                    <span class="text-xs text-gray-500 mt-2">24H 累计: {{ formatBytes(traffic.total_24h.down) }}</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -912,6 +918,15 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                                 const showNodeModal = ref(false);
                 const editingNode = ref({ id: null, name: '', type: 'Vmess', address: '', port: 443, uuid: '', params: '{}' });
                 const vlessParams = ref({ type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '', method: 'aes-256-gcm' });
+                const traffic = ref({ speed: { up: 0, down: 0 }, total_24h: { up: 0, down: 0 } });
+                const fetchTraffic = async () => {
+                    if (activeTab.value !== 'system') return;
+                    try {
+                        const res = await fetch('/api/traffic', { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') } });
+                        if (res.ok) traffic.value = await res.json();
+                    } catch (e) {}
+                };
+
                 const isSubmitting = ref({ apply: false, update: false, node: false, login: false });
                 const isLoading = ref({ apply: false, save: false });
 
