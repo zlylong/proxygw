@@ -744,6 +744,13 @@ func applyXrayConfig() error {
 
 	configData, _ := json.MarshalIndent(config, "", "  ")
 
+	tempTestPath := "/tmp/proxygw_xray_test.json"
+	os.WriteFile(tempTestPath, configData, 0644)
+	if err := exec.Command(getPath("core", "xray", "xray"), "-test", "-config", tempTestPath).Run(); err != nil {
+		log.Printf("[ERROR] Xray config validation failed: %v. Config rejected.", err)
+		return fmt.Errorf("xray config validation failed, check node parameters")
+	}
+
 	os.WriteFile(getPath("core", "xray", "config.json"), configData, 0644)
 	return exec.Command("systemctl", "restart", "xray").Run()
 }
