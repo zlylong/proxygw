@@ -25,7 +25,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 		db.QueryRow("SELECT value FROM settings WHERE key='default_node_id'").Scan(&defNodeStr)
 		defNodeId, _ := strconv.Atoi(defNodeStr)
 
-		rows, err := db.Query("SELECT id, name, COALESCE(grp, ''), type, address, port, uuid, active, ping, COALESCE(params, '{}') FROM nodes")
+		rows, err := db.Query("SELECT id, name, grp, type, address, port, uuid, active, ping, COALESCE(params, '{}') FROM nodes")
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
 			return
@@ -95,7 +95,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 		if n.Params == "" {
 			n.Params = "{}"
 		}
-		if _, err := db.Exec("INSERT INTO nodes (name, COALESCE(grp, ''), type, address, port, uuid, params, active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)", n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID, n.Params); err != nil {
+		if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)", n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID, n.Params); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
@@ -157,7 +157,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "Marshal vmess params failed"})
 					return
 				}
-				if _, err := db.Exec("INSERT INTO nodes (name, COALESCE(grp, ''), type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vmess', ?, ?, ?, ?, 1)", v.Ps, v.Add, portInt, v.Id, string(vmessParamsJson)); err != nil {
+				if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vmess', ?, ?, ?, ?, 1)", v.Ps, v.Add, portInt, v.Id, string(vmessParamsJson)); err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 					return
 				}
@@ -225,7 +225,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 						return
 					}
 
-					if _, err := db.Exec("INSERT INTO nodes (name, COALESCE(grp, ''), type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vless', ?, ?, ?, ?, 1)", alias, host, portInt, uuid, string(paramsJson)); err != nil {
+					if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vless', ?, ?, ?, ?, 1)", alias, host, portInt, uuid, string(paramsJson)); err != nil {
 						c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 						return
 					}
@@ -278,7 +278,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 				}
 
 				paramsJson, _ := json.Marshal(params)
-				if _, err := db.Exec("INSERT INTO nodes (name, COALESCE(grp, ''), type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Wireguard', ?, ?, '', ?, 1)", alias, host, portInt, string(paramsJson)); err != nil {
+				if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Wireguard', ?, ?, '', ?, 1)", alias, host, portInt, string(paramsJson)); err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 					return
 				}
