@@ -15,6 +15,7 @@ git reset --hard origin/main
 echo "[2/4] Building backend..."
 cd "$REPO_DIR/backend"
 export GO111MODULE=on
+export GOPROXY=https://goproxy.cn,direct
 go mod tidy
 go build -o proxygw-backend .
 

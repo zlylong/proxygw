@@ -27,6 +27,7 @@ esac
 
 REPO_DIR="/root/proxygw"
 export GO111MODULE=on
+export GOPROXY=https://goproxy.cn,direct
 
 echo "[1/6] Installing system dependencies..."
 apt-get update
