@@ -42,6 +42,18 @@ apt-get update
 apt-get install -y nftables frr curl wget unzip iproute2
 
 echo "[2/6] Setting up routing rules and system settings..."
+
+# Fail-safe DNS: Break systemd-resolved symlink and inject static public DNS
+# This prevents the system from losing DNS resolution if installation fails or when port 53 is freed.
+echo "Configuring fail-safe DNS..."
+chattr -i /etc/resolv.conf 2>/dev/null || true
+rm -f /etc/resolv.conf
+cat << 'RESOLV_EOF' > /etc/resolv.conf
+nameserver 119.29.29.29
+nameserver 223.5.5.5
+nameserver 1.1.1.1
+RESOLV_EOF
+
 # Free port 53 from systemd-resolved
 if grep -q "#DNSStubListener=yes" /etc/systemd/resolved.conf || grep -q "DNSStubListener=yes" /etc/systemd/resolved.conf || ! grep -q "DNSStubListener=no" /etc/systemd/resolved.conf; then
     echo "Configuring systemd-resolved to free port 53..."
