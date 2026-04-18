@@ -39,7 +39,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 			if err := rows.Scan(&id, &name, &grp, &ntype, &address, &port, &uuid, &active, &ping, &params); err != nil {
 				continue
 			}
-			nodes = append(nodes, map[string]interface{}{"id": id, "name": name, "group": grp, "type": ntype, "address": address, "port": port, "uuid": uuid, "active": active, "ping": ping, "params": params})
+			nodes = append(nodes, map[string]interface{}{"id": id, "name": name, "group": grp, "type": ntype, "address": address, "port": port, "uuid": uuid, "active": active, "ping": ping, "params": params, "is_default": id == defNodeId})
 		}
 		if nodes == nil {
 			nodes = make([]map[string]interface{}, 0)
