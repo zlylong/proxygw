@@ -5,7 +5,6 @@ import (
 	"container/ring"
 	"net/http"
 	"os"
-	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
@@ -107,11 +106,12 @@ func StartConnectionTracker() {
 
 	go func() {
 		for {
-			time.Sleep(1 * time.Hour)
+			time.Sleep(5 * time.Minute)
 			stat, err := os.Stat(logPath)
 			if err == nil && stat.Size() > 5*1024*1024 {
-				os.Remove(logPath)
-				exec.Command("systemctl", "kill", "-s", "SIGUSR1", "proxygw-xray").Run()
+				// Safely truncate the log file to prevent tmpfs overflow
+				// Xray opens file with O_APPEND, so truncate to 0 works perfectly
+				os.Truncate(logPath, 0)
 			}
 		}
 	}()
