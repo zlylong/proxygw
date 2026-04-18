@@ -29,7 +29,7 @@ REPO_DIR="/root/proxygw"
 
 echo "[1/6] Installing system dependencies..."
 apt-get update
-apt-get install -y build-essential nftables frr sqlite3 curl nodejs npm wget unzip
+apt-get install -y nftables frr curl wget unzip iproute2
 
 echo "[2/6] Setting up routing rules and system settings..."
 # Free port 53 from systemd-resolved
