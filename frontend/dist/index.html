@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ProxyGW 透明代理管理系统</title>
@@ -910,7 +913,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const showAclModal = ref(false);
                 const aclForm = ref({ type: 'mac', value: '', policy: 'direct' });
 
-                // const openAddAcl = () => { aclForm.value = { type: 'mac', value: '', policy: 'direct' }; showAclModal.value = true; };
+                const openAddAcl = () => { aclForm.value = { type: 'mac', value: '', policy: 'direct' }; showAclModal.value = true; };
                 const saveAcl = async () => {
                     isSubmitting.value.acl = true;
                     try {
@@ -1568,3 +1571,4 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
     </script>
 </body>
 </html>
+<!-- test12345 -->
