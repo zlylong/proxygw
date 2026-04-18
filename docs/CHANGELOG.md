@@ -1,6 +1,6 @@
 # ProxyGW Changelog
 
-## 2026-04-18 (v1.4.9: Zero Compilation & Robust Deployment)
+## 2026-04-18 (v1.4.10: Zero Compilation & Robust Deployment)
 
 ### 🚀 Zero Compilation Architecture
 - **Pre-compiled Releases**: 彻底重构了 `install.sh` 和 `update.sh` 安装部署脚本，去除了 `golang`, `nodejs`, `npm` 等所有重型编译依赖。脚本现直接从 GitHub Releases 下载预编译的对应架构 (`amd64`/`arm64`) 二进制文件，极大加快了安装与更新速度，并完美支持低性能旁路由或受限网络设备。
@@ -10,7 +10,7 @@
 - **Three-Tier Version Fallback**: 在获取最新版本号时引入了**三重容错机制**：
   1. 优先尝试提取本地 Git 仓库中的 Tag 版本。
   2. 使用带超时与 3 次强制重试机制的 `curl` 轮询 GitHub API。
-  3. 终极回退机制 (Hardcoded Fallback)：在遭遇强力网络阻断时，强制使用硬编码的后备稳定版本（`v1.4.9`）继续下载安装流程，确保脚本绝不报错中断。
+  3. 终极回退机制 (Hardcoded Fallback)：在遭遇强力网络阻断时，强制使用硬编码的后备稳定版本（`v1.4.10`）继续下载安装流程，确保脚本绝不报错中断。
 - **Forced IPv4 Download**: 针对 IPv6 经常遭遇黑洞路由或未完全配置的环境，所有 `curl` 下载流程强制追加 `-4` 参数，显著提升下载与版本检测的成功率。
 - **Boot & Password Polling Fix**: 修复了在重复安装或环境有残留进程时，由于旧服务抢占锁导致新进程无法启动，进而未能生成初始密码 `bootstrap_password.txt` 的致命 BUG。脚本现在会在安装最后一步强制 `systemctl restart proxygw`，并引入高达 15 次的自动重试轮询直至准确捕获密码。
 
