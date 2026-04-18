@@ -14,7 +14,7 @@ git reset --hard origin/main
 
 echo "[2/4] Downloading backend from GitHub Releases..."
 ARCH=$(uname -m)
-PROXYGW_LATEST=$(curl -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | grep "tag_name": | sed -E "s/.*\"([^\"]+)\".*/\1/")
+PROXYGW_LATEST=$(curl --retry 5 --connect-timeout 5 -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | grep "tag_name": | sed -E "s/.*\"([^\"]+)\".*/\\1/") || true
 if [ -z "$PROXYGW_LATEST" ]; then
     echo "Error: Failed to fetch ProxyGW latest version!"
     exit 1
@@ -27,9 +27,75 @@ fi
 chmod +x "$REPO_DIR/backend/proxygw-backend"
 
 echo "[3/4] Updating Systemd services (if changed)..."
-cp "$REPO_DIR/systemd/proxygw.service" /etc/systemd/system/ || true
-cp "$REPO_DIR/systemd/mosdns.service" /etc/systemd/system/ || true
-cp "$REPO_DIR/systemd/xray.service" /etc/systemd/system/ || true
+
+echo "[3/4] Creating Systemd services..."
+cat << 'SYS_EOF' > /etc/systemd/system/proxygw.service
+[Unit]
+Description=ProxyGW Backend Service
+After=network.target network-online.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/proxygw/backend
+ExecStart=/root/proxygw/backend/proxygw-backend
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+# Security Sandboxing
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr
+
+[Install]
+WantedBy=multi-user.target
+SYS_EOF
+
+cat << 'SYS_EOF' > /etc/systemd/system/mosdns.service
+[Unit]
+Description=Mosdns Service
+After=network.target network-online.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/proxygw/core/mosdns
+ExecStart=/root/proxygw/core/mosdns/mosdns start -d /root/proxygw/core/mosdns
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+SYS_EOF
+
+cat << 'SYS_EOF' > /etc/systemd/system/xray.service
+[Unit]
+Description=Xray Service
+After=network.target network-online.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/proxygw/core/xray
+Environment=XRAY_LOCATION_ASSET=/root/proxygw/core/mosdns
+ExecStart=/root/proxygw/core/xray/xray run -confdir /root/proxygw/core/xray
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+SYS_EOF
+
 systemctl daemon-reload
 
 echo "[4/4] Restarting services..."

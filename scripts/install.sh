@@ -99,7 +99,7 @@ mkdir -p "$REPO_DIR/core/frr"
 mkdir -p "$REPO_DIR/systemd"
 
 echo "[4/6] Downloading backend from GitHub Releases..."
-PROXYGW_LATEST=$(curl -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | grep "tag_name": | sed -E "s/.*\"([^\"]+)\".*/\1/")
+PROXYGW_LATEST=$(curl --retry 5 --connect-timeout 5 -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | grep "tag_name": | sed -E "s/.*\"([^\"]+)\".*/\\1/") || true
 if [ -z "$PROXYGW_LATEST" ]; then
     echo "Error: Failed to fetch ProxyGW latest version!"
     exit 1
@@ -111,8 +111,75 @@ elif [ "$ARCH" = "aarch64" ]; then
 fi
 chmod +x "$REPO_DIR/backend/proxygw-backend"
 
-echo "[5/6] Creating Systemd service..."
-cp "$REPO_DIR/systemd/proxygw.service" /etc/systemd/system/
+
+echo "[5/6] Creating Systemd services..."
+cat << 'SYS_EOF' > /etc/systemd/system/proxygw.service
+[Unit]
+Description=ProxyGW Backend Service
+After=network.target network-online.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/proxygw/backend
+ExecStart=/root/proxygw/backend/proxygw-backend
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+# Security Sandboxing
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr
+
+[Install]
+WantedBy=multi-user.target
+SYS_EOF
+
+cat << 'SYS_EOF' > /etc/systemd/system/mosdns.service
+[Unit]
+Description=Mosdns Service
+After=network.target network-online.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/proxygw/core/mosdns
+ExecStart=/root/proxygw/core/mosdns/mosdns start -d /root/proxygw/core/mosdns
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+SYS_EOF
+
+cat << 'SYS_EOF' > /etc/systemd/system/xray.service
+[Unit]
+Description=Xray Service
+After=network.target network-online.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/proxygw/core/xray
+Environment=XRAY_LOCATION_ASSET=/root/proxygw/core/mosdns
+ExecStart=/root/proxygw/core/xray/xray run -confdir /root/proxygw/core/xray
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+SYS_EOF
+
 
 echo "[5.5/6] Verifying and Installing Core Binaries ($ARCH)..."
 # Check and download Xray if it doesn't match the architecture or doesn't exist
@@ -140,8 +207,7 @@ if ! "$REPO_DIR/core/mosdns/mosdns" version >/dev/null 2>&1; then
 fi
 chmod +x "$REPO_DIR/core/mosdns/mosdns" || true
 
-cp "$REPO_DIR/systemd/mosdns.service" /etc/systemd/system/ || true
-cp "$REPO_DIR/systemd/xray.service" /etc/systemd/system/ || true
+
 
 echo "Applying strict anti-loop Nftables rules..."
 cat << 'NFT_EOF' > /etc/nftables.conf
