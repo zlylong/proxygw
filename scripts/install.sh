@@ -269,8 +269,15 @@ systemctl enable --now proxygw mosdns xray || true
 systemctl restart proxygw mosdns xray || true
 
 # Automatically generate a secure password if it's a fresh install
-# Wait a few seconds for the database to be initialized by the backend
-sleep 3
+# Wait for the database and bootstrap password to be initialized by the backend
+echo "Waiting for ProxyGW to initialize..."
+for i in {1..15}; do
+    if [ -f "/config/bootstrap_password.txt" ]; then
+        break
+    fi
+    sleep 1
+done
+
 if [ -f "$REPO_DIR/config/bootstrap_password.txt" ]; then
     echo "=========================================================="
     echo "ProxyGW is running! A random initial password was generated:"
