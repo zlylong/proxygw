@@ -2,13 +2,13 @@ package main
 
 func buildBaseXrayConfig(mode string) map[string]interface{} {
 	config := map[string]interface{}{
-		"log":    map[string]string{"loglevel": "warning"},
+		"log":    map[string]string{"loglevel": "warning", "access": "/run/proxygw/xray_access.log"},
 		"api":    map[string]interface{}{"services": []string{"StatsService"}, "tag": "api"},
 		"stats":  map[string]interface{}{},
 		"policy": map[string]interface{}{"system": map[string]interface{}{"statsInboundDownlink": true, "statsInboundUplink": true}},
 		"inbounds": []map[string]interface{}{
 			{
-				"port": 12345, "protocol": "dokodemo-door",
+				"port": 12345, "listen": "::", "protocol": "dokodemo-door",
 				"settings":       map[string]interface{}{"network": "tcp,udp", "followRedirect": true},
 				"streamSettings": map[string]interface{}{"sockopt": map[string]string{"tproxy": "tproxy"}},
 				"sniffing":       map[string]interface{}{"enabled": true, "destOverride": []string{"http", "tls"}},

@@ -328,6 +328,41 @@ func triggerCronReload() {
 	}
 }
 
+
+func subscriptionUpdater() {
+	for {
+		rows, err := db.Query("SELECT id, url, update_interval, last_update FROM subscriptions WHERE active = 1 AND auto_update = 1")
+		if err == nil {
+			for rows.Next() {
+				var id, interval int
+				var url string
+				var lastUpdate sql.NullString
+				if err := rows.Scan(&id, &url, &interval, &lastUpdate); err == nil {
+					shouldUpdate := false
+					if !lastUpdate.Valid || lastUpdate.String == "" {
+						shouldUpdate = true
+					} else {
+						lu, err := time.Parse("2006-01-02 15:04:05", lastUpdate.String)
+						if err == nil && time.Since(lu).Minutes() >= float64(interval) {
+							shouldUpdate = true
+						}
+					}
+					
+					if shouldUpdate {
+						log.Printf("[INFO] Auto-syncing subscription %d", id)
+						if err := syncSubscription(fmt.Sprintf("%d", id), url); err == nil {
+							db.Exec("UPDATE subscriptions SET last_update = ? WHERE id = ?", time.Now().Format("2006-01-02 15:04:05"), id)
+							applyXrayConfig()
+						}
+					}
+				}
+			}
+			rows.Close()
+		}
+		time.Sleep(5 * time.Minute)
+	}
+}
+
 func cronUpdater() {
 	for {
 		var enabled, cronTime string
@@ -477,7 +512,11 @@ func applyXrayConfig() error {
 			continue
 		}
 
+
 		ntypeLow := strings.ToLower(ntype)
+		if ntypeLow == "hysteria2" || ntypeLow == "hy2" {
+			continue // Xray-core does not natively support hysteria2 yet
+		}
 
 		var params map[string]interface{}
 		json.Unmarshal([]byte(paramsStr), &params)
@@ -570,12 +609,6 @@ func applyXrayConfig() error {
 		}
 	}
 
-	if len(proxyTags) > 0 {
-		config["outbounds"] = append(config["outbounds"].([]map[string]interface{}), map[string]interface{}{
-			"protocol": "freedom", "tag": "proxy",
-			"streamSettings": map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}},
-		})
-	}
 
 	rRows, err := db.Query("SELECT type, value, policy FROM rules")
 	if err != nil {
@@ -625,10 +658,28 @@ func applyXrayConfig() error {
 		log.Printf("[WARN] rRows err: %v", err)
 	}
 
+
 	if len(proxyTags) > 0 {
+		config["observatory"] = map[string]interface{}{
+			"subjectSelector": []string{"proxy-"},
+			"probeURL":        "http://cp.cloudflare.com/",
+			"probeInterval":   "30s",
+		}
+		routing := config["routing"].(map[string]interface{})
+		routing["balancers"] = []map[string]interface{}{
+			{
+				"tag":      "proxy-balancer",
+				"selector": []string{"proxy-"},
+				"strategy": map[string]interface{}{
+					"type": "leastPing",
+				},
+			},
+		}
+		
 		for _, r := range rules {
 			if r["outboundTag"] == "proxy" {
-				r["outboundTag"] = proxyTags[0]
+				delete(r, "outboundTag")
+				r["balancerTag"] = "proxy-balancer"
 			}
 		}
 	}
@@ -788,11 +839,18 @@ func main() {
 	syncFRRConfig()
 	go ospfController()
 	go cronUpdater()
+	go subscriptionUpdater()
 	applyMosdnsConfig()
 	applyXrayConfig()
+	
+	// Init connection tracking
+	os.MkdirAll("/run/proxygw", 0755)
+	StartConnectionTracker()
 
 	exec.Command("sh", "-c", "ip rule del fwmark 1 lookup tproxy 2>/dev/null || true; ip rule add fwmark 1 lookup tproxy").Run()
 	exec.Command("sh", "-c", "ip route del local default dev lo table tproxy 2>/dev/null || true; ip route add local default dev lo table tproxy").Run()
+	exec.Command("sh", "-c", "ip -6 rule del fwmark 1 lookup tproxy 2>/dev/null || true; ip -6 rule add fwmark 1 lookup tproxy").Run()
+	exec.Command("sh", "-c", "ip -6 route del local default dev lo table tproxy 2>/dev/null || true; ip -6 route add local default dev lo table tproxy").Run()
 
 	r := gin.Default()
 	registerAPIRoutes(r)
