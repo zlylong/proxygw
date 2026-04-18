@@ -1,0 +1,35 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 20003,
+      "tag": "in-3",
+      "type": "socks"
+    }
+  ],
+  "log": {
+    "level": "warn"
+  },
+  "outbounds": [
+    {
+      "password": "my-hy2-pass",
+      "server": "300.300.300.300",
+      "server_port": 443,
+      "tag": "out-3",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "cloudflare.com"
+      },
+      "type": "hysteria2"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "inbound": "in-3",
+        "outbound": "out-3"
+      }
+    ]
+  }
+}

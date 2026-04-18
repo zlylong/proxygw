@@ -495,6 +495,8 @@ func applyMosdnsConfig() error {
 }
 
 func applyXrayConfig() error {
+	applySingboxConfig()
+
 	var mode string
 	db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
 	config := buildBaseXrayConfig(mode)
@@ -514,12 +516,31 @@ func applyXrayConfig() error {
 
 
 		ntypeLow := strings.ToLower(ntype)
-		if ntypeLow == "hysteria2" || ntypeLow == "hy2" {
-			continue // Xray-core does not natively support hysteria2 yet
-		}
 
 		var params map[string]interface{}
 		json.Unmarshal([]byte(paramsStr), &params)
+
+		if ntypeLow == "hysteria2" || ntypeLow == "hy2" {
+			localPort := 20000 + id
+			outbound := map[string]interface{}{
+				"protocol": "socks",
+				"tag":      fmt.Sprintf("proxy-%d", id),
+				"settings": map[string]interface{}{
+					"servers": []map[string]interface{}{
+						{
+							"address": "127.0.0.1",
+							"port":    localPort,
+						},
+					},
+				},
+				"streamSettings": map[string]interface{}{
+					"sockopt": map[string]interface{}{"mark": 2},
+				},
+			}
+			config["outbounds"] = append(config["outbounds"].([]map[string]interface{}), outbound)
+			proxyTags = append(proxyTags, fmt.Sprintf("proxy-%d", id))
+			continue
+		}
 		if params == nil {
 			params = make(map[string]interface{})
 		}
