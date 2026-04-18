@@ -1,9 +1,13 @@
 # ProxyGW Changelog
 
+## [1.5.0] - 2026-04-18
+### Removed
+- **架构净化**: 彻底移除了 Hysteria2、Sing-box 以及相关生态的残留支持，保持纯净的 Xray + Mosdns + FRR/Nftables 极简底层架构。
+- **功能裁剪**: 彻底移除了“机场订阅”功能 (Backend 定时轮询与 Frontend UI)。网关定位回归纯粹的企业/家庭级节点管控，拒绝第三方不规范配置导致的崩溃隐患，确保极致稳定。
+
 ## 2026-04-18 (v1.5.0-alpha.1: Next-Gen Architecture Roadmap)
 
-### 🚀 1. 刚需功能：机场订阅与高可用
-- **外部订阅导入 (Subscription Manager)**：支持解析 Base64 / SIP002 / Clash YAML 格式的订阅链接同步，并支持每日自动更新。打破目前偏向“自建节点”的限制，满足绝大多数机场用户的需求。
+### 🚀 1. 刚需功能：高可用与节点自愈
 - **故障转移与负载均衡 (Failover & Load Balancing)**：当当前节点被墙或宕机时，网关基于定时测速（URL Test / Ping）自动无缝切换到备用节点，避免单一节点故障导致全屋断网。
 
 ### 📊 2. 可观测性：实时流量与连接看板 (排障利器)
