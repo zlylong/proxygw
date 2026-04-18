@@ -37,6 +37,7 @@ func registerAPIRoutes(r *gin.Engine) {
 	registerConnectionRoutes(authed)
 	registerUpdateRoutes(authed)
 	registerRemoteNodeRoutes(authed)
+	registerSyslogsRoutes(authed)
 
 	authed.POST("/apply", func(c *gin.Context) {
 		if err := applyMosdnsConfig(); err != nil {
