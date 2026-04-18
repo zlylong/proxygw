@@ -81,42 +81,49 @@ func applyNftablesConfig() error {
 		defaultPolicy = "proxy"
 	}
 
-	rows, err := db.Query("SELECT type, value, policy FROM lan_acls")
-	if err != nil {
-		return err
+	var mode string
+	if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
+		mode = "A" // default
 	}
-	defer rows.Close()
-
 
 	var macProxy, macDirect, ipProxy, ipDirect, ip6Proxy, ip6Direct string
-	for rows.Next() {
-		var t, v, p string
-		if err := rows.Scan(&t, &v, &p); err == nil {
-			if t == "mac" {
-				if p == "proxy" {
-					if macProxy != "" { macProxy += ", " }
-					macProxy += v
-				} else if p == "direct" {
-					if macDirect != "" { macDirect += ", " }
-					macDirect += v
-				}
-			} else if t == "ip" {
-				isIPv6 := strings.Contains(v, ":")
-				if p == "proxy" {
-					if isIPv6 {
-						if ip6Proxy != "" { ip6Proxy += ", " }
-						ip6Proxy += v
-					} else {
-						if ipProxy != "" { ipProxy += ", " }
-						ipProxy += v
-					}
-				} else if p == "direct" {
-					if isIPv6 {
-						if ip6Direct != "" { ip6Direct += ", " }
-						ip6Direct += v
-					} else {
-						if ipDirect != "" { ipDirect += ", " }
-						ipDirect += v
+
+	// ONLY process LAN ACLs if we are in Mode A.
+	// In Mode B and C, these cause loops or blackholes, so we keep the variables empty.
+	if mode == "A" {
+		rows, err := db.Query("SELECT type, value, policy FROM lan_acls")
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var t, v, p string
+				if err := rows.Scan(&t, &v, &p); err == nil {
+					if t == "mac" {
+						if p == "proxy" {
+							if macProxy != "" { macProxy += ", " }
+							macProxy += v
+						} else if p == "direct" {
+							if macDirect != "" { macDirect += ", " }
+							macDirect += v
+						}
+					} else if t == "ip" {
+						isIPv6 := strings.Contains(v, ":")
+						if p == "proxy" {
+							if isIPv6 {
+								if ip6Proxy != "" { ip6Proxy += ", " }
+								ip6Proxy += v
+							} else {
+								if ipProxy != "" { ipProxy += ", " }
+								ipProxy += v
+							}
+						} else if p == "direct" {
+							if isIPv6 {
+								if ip6Direct != "" { ip6Direct += ", " }
+								ip6Direct += v
+							} else {
+								if ipDirect != "" { ipDirect += ", " }
+								ipDirect += v
+							}
+						}
 					}
 				}
 			}
