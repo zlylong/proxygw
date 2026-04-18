@@ -247,8 +247,11 @@
                     <div v-if="activeTab === 'connections'" key="connections" class="h-full flex flex-col">
                         <div class="flex justify-between items-center mb-4">
                             <h3 class="text-lg font-semibold text-gray-700">实时连接追踪 (Top 200)</h3>
-                            <div class="text-sm text-gray-500">
-                                <i class="fas fa-circle-notch fa-spin mr-1"></i> 实时更新中...
+                            <div class="flex items-center space-x-4">
+                                <input type="text" v-model="connSearch" placeholder="筛选客户端 IP..." class="px-3 py-1 border rounded text-sm focus:outline-blue-500" />
+                                <div class="text-sm text-gray-500">
+                                    <i class="fas fa-circle-notch fa-spin mr-1"></i> 实时更新中...
+                                </div>
                             </div>
                         </div>
                         <div class="bg-white rounded shadow flex-1 overflow-hidden flex flex-col">
@@ -264,10 +267,10 @@
                                         </tr>
                                     </thead>
                                     <tbody class="text-sm divide-y divide-gray-100">
-                                        <tr v-if="connections.length === 0">
+                                        <tr v-if="filteredConnections.length === 0">
                                             <td colspan="5" class="p-8 text-center text-gray-400">暂无连接数据...</td>
                                         </tr>
-                                        <tr v-for="(conn, idx) in connections" :key="idx" class="hover:bg-blue-50 transition-colors">
+                                        <tr v-for="(conn, idx) in filteredConnections" :key="idx" class="hover:bg-blue-50 transition-colors">
                                             <td class="p-3 text-gray-500 font-mono text-xs">{{ conn.time }}</td>
                                             <td class="p-3 font-medium text-blue-600 font-mono">{{ conn.client }}</td>
                                             <td class="p-3 text-gray-600">
@@ -1243,6 +1246,14 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const defaultLanPolicy = ref('proxy');
                 const connections = ref([]);
 
+                const connSearch = ref('');
+                const filteredConnections = computed(() => {
+                    if (!connSearch.value) return connections.value;
+                    const s = connSearch.value.toLowerCase();
+                    return connections.value.filter(c => c.client.toLowerCase().includes(s));
+                });
+
+
                 const nodes = ref([]);
 
                 const rules = ref([]);
@@ -1561,7 +1572,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                 onMounted(() => { loadData(true); setInterval(() => loadData(false), 2000); });
 
                                 return {
-                    connections, lanAcls, defaultLanPolicy,
+                    connections, connSearch, filteredConnections, lanAcls, defaultLanPolicy,
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
 
                     loadData,
