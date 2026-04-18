@@ -265,6 +265,9 @@ echo "[6/6] Starting services..."
 systemctl daemon-reload
 systemctl enable --now proxygw mosdns xray || true
 
+# Force restart if already running to pick up updates and generate bootstrap if needed
+systemctl restart proxygw mosdns xray || true
+
 # Automatically generate a secure password if it's a fresh install
 # Wait a few seconds for the database to be initialized by the backend
 sleep 3
