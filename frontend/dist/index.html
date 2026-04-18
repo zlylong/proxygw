@@ -206,7 +206,7 @@
                     <button @click="showPwdModal = true" class="hover:text-white transition"><i class="fa-solid fa-key"></i> 修改密码</button>
                     <button @click="logout" class="hover:text-white transition"><i class="fa-solid fa-arrow-right-from-bracket"></i> 退出</button>
                 </div>
-                <div>ProxyGW v1.4.9 <br> Debian 13 | Xray | FRR</div>
+                <div>ProxyGW v1.5.0-beta <br> Debian 13 | Xray | FRR</div>
             </div>
         </aside>
 
@@ -907,8 +907,6 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const isLoading = ref({ apply: false, save: false });
 
                 
-                const showSubModal = ref(false);
-                const subForm = ref({ name: '', url: '', auto_update: 1, update_interval: 1440, active: 1 });
                 const showAclModal = ref(false);
                 const aclForm = ref({ type: 'mac', value: '', policy: 'direct' });
 
@@ -1238,7 +1236,6 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
 
                 
                 
-                const subscriptions = ref([]);
                 const lanAcls = ref([]);
                 const defaultLanPolicy = ref('proxy');
                 const connections = ref([]);
