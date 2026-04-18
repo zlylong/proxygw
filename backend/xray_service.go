@@ -24,7 +24,7 @@ func buildBaseXrayConfig(mode string) map[string]interface{} {
 			{"protocol": "blackhole", "tag": "block"},
 		},
 		"routing": map[string]interface{}{
-			"domainStrategy": "AsIs",
+			"domainStrategy": "IPIfNonMatch",
 			"rules": []map[string]interface{}{
 				{"inboundTag": []string{"api_inbound"}, "outboundTag": "api", "type": "field"},
 			},

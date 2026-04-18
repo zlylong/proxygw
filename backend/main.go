@@ -682,8 +682,9 @@ func applyXrayConfig() error {
 		}
 
 		for _, r := range rules {
-			if r["outboundTag"] == "proxy" {
+			if r["balancerTag"] == "proxy-balancer" {
 				if actualDefault > 0 {
+					delete(r, "balancerTag")
 					r["outboundTag"] = fmt.Sprintf("proxy-%d-out", actualDefault)
 				} else {
 					delete(r, "outboundTag")
@@ -707,13 +708,6 @@ func applyXrayConfig() error {
 			balancers = append(balancers, cb)
 		}
 		routing["balancers"] = balancers
-		catchAll := map[string]interface{}{"type": "field", "network": "tcp,udp"}
-		if actualDefault > 0 {
-			catchAll["outboundTag"] = fmt.Sprintf("proxy-%d-out", actualDefault)
-		} else {
-			catchAll["balancerTag"] = "proxy-balancer"
-		}
-		rules = append(rules, catchAll)
 	}
 	config["routing"].(map[string]interface{})["rules"] = rules
 
