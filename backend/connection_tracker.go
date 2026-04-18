@@ -142,9 +142,27 @@ func StartConnectionTracker() {
 
 func registerConnectionRoutes(r *gin.RouterGroup) {
 	r.GET("/connections", func(c *gin.Context) {
+		ip := c.Query("ip")
+		allConns := GetRecentConnections()
+		
+		if ip == "" {
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"data":    []ConnectionRecord{},
+			})
+			return
+		}
+
+		var filtered []ConnectionRecord
+		for _, conn := range allConns {
+			if strings.Contains(strings.ToLower(conn.Client), strings.ToLower(ip)) {
+				filtered = append(filtered, conn)
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"data":    GetRecentConnections(),
+			"data":    filtered,
 		})
 	})
 }
