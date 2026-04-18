@@ -21,7 +21,65 @@
             {{ toastMsg }}
         </div>
         
-                <!-- Node Edit Modal -->
+                
+        <!-- Subscription Modal -->
+        <div v-if="showSubModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-lg p-6 max-w-lg w-full">
+                <h3 class="text-lg font-bold mb-4">添加订阅</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">订阅名称</label>
+                        <input type="text" v-model="subForm.name" class="w-full border rounded p-2 text-sm focus:outline-blue-500" placeholder="如: 我的机场">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">订阅地址 (URL)</label>
+                        <input type="text" v-model="subForm.url" class="w-full border rounded p-2 text-sm focus:outline-blue-500" placeholder="https://...">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">自动更新间隔 (分钟)</label>
+                        <input type="number" v-model="subForm.update_interval" class="w-full border rounded p-2 text-sm focus:outline-blue-500" placeholder="1440">
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end space-x-3">
+                    <button @click="showSubModal = false" class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">取消</button>
+                    <button @click="saveSub" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50" :disabled="isSubmitting.sub">保存并同步</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- LAN ACL Modal -->
+        <div v-if="showAclModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-lg p-6 max-w-md w-full">
+                <h3 class="text-lg font-bold mb-4">添加设备分流规则</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">类型</label>
+                        <select v-model="aclForm.type" class="w-full border rounded p-2 text-sm focus:outline-blue-500">
+                            <option value="mac">MAC 地址</option>
+                            <option value="ip">IP 地址 (含 IPv6)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">设备标识</label>
+                        <input type="text" v-model="aclForm.value" class="w-full border rounded p-2 text-sm focus:outline-blue-500" placeholder="aa:bb:cc:dd:ee:ff 或 192.168.x.x">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">路由策略</label>
+                        <select v-model="aclForm.policy" class="w-full border rounded p-2 text-sm focus:outline-blue-500">
+                            <option value="proxy">代理 (Proxy)</option>
+                            <option value="direct">直连 (Direct)</option>
+                            <option value="reject">拦截断网 (Reject)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end space-x-3">
+                    <button @click="showAclModal = false" class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">取消</button>
+                    <button @click="saveAcl" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50" :disabled="isSubmitting.acl">保存</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Node Edit Modal -->
         <div v-if="showNodeModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div class="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-4">
@@ -207,7 +265,153 @@
             <div class="flex-1 overflow-auto p-8">
                 <transition name="fade" mode="out-in">
                     
+                    
+                    <!-- Connections -->
+                    <div v-if="activeTab === 'connections'" key="connections" class="h-full flex flex-col">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-semibold text-gray-700">实时连接追踪 (Top 200)</h3>
+                            <div class="text-sm text-gray-500">
+                                <i class="fas fa-circle-notch fa-spin mr-1"></i> 实时更新中...
+                            </div>
+                        </div>
+                        <div class="bg-white rounded shadow flex-1 overflow-hidden flex flex-col">
+                            <div class="overflow-x-auto flex-1">
+                                <table class="w-full text-left border-collapse">
+                                    <thead class="bg-gray-100 sticky top-0 shadow-sm z-10">
+                                        <tr>
+                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">访问时间</th>
+                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">局域网客户端</th>
+                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">协议</th>
+                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">目标地址</th>
+                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">路由策略</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="text-sm divide-y divide-gray-100">
+                                        <tr v-if="connections.length === 0">
+                                            <td colspan="5" class="p-8 text-center text-gray-400">暂无连接数据...</td>
+                                        </tr>
+                                        <tr v-for="(conn, idx) in connections" :key="idx" class="hover:bg-blue-50 transition-colors">
+                                            <td class="p-3 text-gray-500 font-mono text-xs">{{ conn.time }}</td>
+                                            <td class="p-3 font-medium text-blue-600 font-mono">{{ conn.client }}</td>
+                                            <td class="p-3 text-gray-600">
+                                                <span class="px-2 py-0.5 rounded text-xs font-bold" 
+                                                    :class="conn.network === 'tcp' ? 'bg-indigo-100 text-indigo-700' : 'bg-teal-100 text-teal-700'">
+                                                    {{ conn.network.toUpperCase() }}
+                                                </span>
+                                            </td>
+                                            <td class="p-3 text-gray-700 font-mono">{{ conn.target }}</td>
+                                            <td class="p-3">
+                                                <span class="px-2 py-1 rounded text-xs font-bold flex items-center inline-flex"
+                                                    :class="{
+                                                        'bg-green-100 text-green-700': conn.policy.includes('proxy'),
+                                                        'bg-gray-200 text-gray-700': conn.policy.includes('direct'),
+                                                        'bg-red-100 text-red-700': conn.policy.includes('block')
+                                                    }">
+                                                    <i class="fas mr-1" :class="{
+                                                        'fa-paper-plane': conn.policy.includes('proxy'),
+                                                        'fa-arrow-right': conn.policy.includes('direct'),
+                                                        'fa-ban': conn.policy.includes('block')
+                                                    }"></i>
+                                                    {{ conn.policy }}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    
+                    <!-- Subscriptions -->
+                    <div v-if="activeTab === 'subscriptions'" key="subscriptions" class="h-full flex flex-col">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-semibold text-gray-700">机场订阅管理</h3>
+                            <button @click="openAddSub" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 transition shadow">
+                                <i class="fas fa-plus mr-1"></i> 添加订阅
+                            </button>
+                        </div>
+                        <div class="bg-white rounded shadow flex-1 overflow-hidden">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-gray-50 border-b">
+                                    <tr>
+                                        <th class="p-3 text-sm font-semibold text-gray-600">名称</th>
+                                        <th class="p-3 text-sm font-semibold text-gray-600">URL</th>
+                                        <th class="p-3 text-sm font-semibold text-gray-600">同步间隔</th>
+                                        <th class="p-3 text-sm font-semibold text-gray-600">上次同步</th>
+                                        <th class="p-3 text-sm font-semibold text-gray-600 text-right">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="text-sm divide-y">
+                                    <tr v-if="subscriptions.length === 0"><td colspan="5" class="p-8 text-center text-gray-400">暂无订阅记录...</td></tr>
+                                    <tr v-for="sub in subscriptions" :key="sub.id" class="hover:bg-gray-50">
+                                        <td class="p-3 font-medium text-gray-800">{{ sub.name }}</td>
+                                        <td class="p-3 text-gray-500 font-mono text-xs max-w-xs truncate" :title="sub.url">{{ sub.url }}</td>
+                                        <td class="p-3 text-gray-600">{{ sub.update_interval }} 分钟</td>
+                                        <td class="p-3 text-gray-500 text-xs">{{ sub.last_update || '从未同步' }}</td>
+                                        <td class="p-3 text-right space-x-2">
+                                            <button @click="syncSub(sub.id)" class="text-blue-500 hover:text-blue-700" title="手动强制同步"><i class="fas fa-rotate"></i></button>
+                                            <button @click="deleteSub(sub.id)" class="text-red-500 hover:text-red-700" title="删除"><i class="fas fa-trash"></i></button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- LAN ACLs -->
+                    <div v-if="activeTab === 'lan_acls'" key="lan_acls" class="h-full flex flex-col">
+                        <div class="flex justify-between items-center mb-4">
+                            <div class="flex items-center space-x-4">
+                                <h3 class="text-lg font-semibold text-gray-700">局域网设备分流</h3>
+                                <div class="flex items-center bg-white border rounded px-3 py-1.5 shadow-sm">
+                                    <label class="text-sm font-medium text-gray-600 mr-2">网关全局兜底策略:</label>
+                                    <select v-model="defaultLanPolicy" @change="updateLanDefault" class="text-sm border-none focus:ring-0 outline-none font-bold" :class="defaultLanPolicy==='proxy' ? 'text-green-600' : 'text-gray-600'">
+                                        <option value="proxy">全局代理 (黑名单模式)</option>
+                                        <option value="direct">全局直连 (白名单模式)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button @click="openAddAcl" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 transition shadow">
+                                <i class="fas fa-plus mr-1"></i> 添加独立设备
+                            </button>
+                        </div>
+                        <div class="bg-white rounded shadow flex-1 overflow-hidden">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-gray-50 border-b">
+                                    <tr>
+                                        <th class="p-3 text-sm font-semibold text-gray-600">标识类型</th>
+                                        <th class="p-3 text-sm font-semibold text-gray-600">设备标识 (MAC/IP)</th>
+                                        <th class="p-3 text-sm font-semibold text-gray-600">独立路由策略</th>
+                                        <th class="p-3 text-sm font-semibold text-gray-600 text-right">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="text-sm divide-y">
+                                    <tr v-if="lanAcls.length === 0"><td colspan="4" class="p-8 text-center text-gray-400">无自定义设备策略，全部遵循全局策略。</td></tr>
+                                    <tr v-for="acl in lanAcls" :key="acl.id" class="hover:bg-gray-50">
+                                        <td class="p-3 font-mono text-xs text-gray-500 uppercase">{{ acl.type }}</td>
+                                        <td class="p-3 font-medium text-gray-800 font-mono">{{ acl.value }}</td>
+                                        <td class="p-3">
+                                            <span class="px-2 py-1 rounded text-xs font-bold"
+                                                :class="{
+                                                    'bg-green-100 text-green-700': acl.policy === 'proxy',
+                                                    'bg-gray-200 text-gray-700': acl.policy === 'direct',
+                                                    'bg-red-100 text-red-700': acl.policy === 'reject'
+                                                }">
+                                                {{ acl.policy.toUpperCase() }}
+                                            </span>
+                                        </td>
+                                        <td class="p-3 text-right">
+                                            <button @click="deleteAcl(acl.id)" class="text-red-500 hover:text-red-700" title="删除"><i class="fas fa-trash"></i></button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
                     <!-- Nodes -->
+
                     <div v-if="activeTab === 'nodes'" key="nodes">
                         <div class="flex justify-between mb-4">
                             <div class="space-x-2">
@@ -751,7 +955,60 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const isSubmitting = ref({ apply: false, update: false, node: false, login: false });
                 const isLoading = ref({ apply: false, save: false });
 
+                
+                const showSubModal = ref(false);
+                const subForm = ref({ name: '', url: '', auto_update: 1, update_interval: 1440, active: 1 });
+                const showAclModal = ref(false);
+                const aclForm = ref({ type: 'mac', value: '', policy: 'direct' });
+
+                const openAddSub = () => { subForm.value = { name: '', url: '', auto_update: 1, update_interval: 1440, active: 1 }; showSubModal.value = true; };
+                const saveSub = async () => {
+                    isSubmitting.value.sub = true;
+                    try {
+                        let r = await apiFetch('/api/subscriptions', { method: 'POST', body: JSON.stringify(subForm.value) });
+                        if(r.ok) { 
+                            showToast('订阅添加成功，开始后台同步...'); 
+                            showSubModal.value = false; 
+                            let d = await r.json();
+                            await syncSub(d.data.id, true);
+                        } else { let d = await r.json(); showToast(d.error || '添加失败', 'error'); }
+                    } catch(e) { showToast('网络错误', 'error'); }
+                    finally { isSubmitting.value.sub = false; }
+                };
+                const deleteSub = async (id) => {
+                    if(!confirm('确认删除此订阅？该订阅下的所有节点将被一并删除！')) return;
+                    await apiFetch('/api/subscriptions/' + id, { method: 'DELETE' });
+                    showToast('已删除'); loadData(false);
+                };
+                const syncSub = async (id, silent=false) => {
+                    if(!silent) showToast('正在向机场发起同步请求...');
+                    let r = await apiFetch('/api/subscriptions/' + id + '/sync', { method: 'POST' });
+                    if(r.ok) { showToast('订阅同步成功，节点已更新'); loadData(false); }
+                    else { let d = await r.json(); showToast(d.error || '同步失败', 'error'); }
+                };
+
+                const openAddAcl = () => { aclForm.value = { type: 'mac', value: '', policy: 'direct' }; showAclModal.value = true; };
+                const saveAcl = async () => {
+                    isSubmitting.value.acl = true;
+                    try {
+                        let r = await apiFetch('/api/lan_acls', { method: 'POST', body: JSON.stringify(aclForm.value) });
+                        if(r.ok) { showToast('添加成功，防火墙已热重载'); showAclModal.value = false; loadData(false); }
+                        else { let d = await r.json(); showToast(d.error || '添加失败', 'error'); }
+                    } catch(e) { showToast('网络错误', 'error'); }
+                    finally { isSubmitting.value.acl = false; }
+                };
+                const deleteAcl = async (id) => {
+                    if(!confirm('确认删除此设备策略？')) return;
+                    await apiFetch('/api/lan_acls/' + id, { method: 'DELETE' });
+                    showToast('已删除，防火墙已热重载'); loadData(false);
+                };
+                const updateLanDefault = async () => {
+                    let r = await apiFetch('/api/lan_acls/default_policy', { method: 'POST', body: JSON.stringify({ policy: defaultLanPolicy.value }) });
+                    if(r.ok) showToast('网关全局策略已切换！防火墙热重载完成。');
+                };
+
                 const openAddNode = () => {
+
                     editingNode.value = { id: null, name: 'New Node', type: 'Vmess', address: '1.2.3.4', port: 443, uuid: '', params: '{}' };
                     vlessParams.value = { type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '', method: 'aes-256-gcm' };
                     showNodeModal.value = true;
@@ -1035,8 +1292,15 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 });
 
                 const tabs = [
+                    
                     { id: 'system', icon: 'fa-gauge', label: '系统与更新' },
+                    { id: 'connections', icon: 'fa-network-wired', label: '实时流量大屏' },
+
+                    
                     { id: 'nodes', icon: 'fa-server', label: '节点管理' },
+                    { id: 'subscriptions', icon: 'fa-rss', label: '机场订阅' },
+                    { id: 'lan_acls', icon: 'fa-laptop-house', label: '设备分流 (LAN)' },
+
                     { id: 'remote_nodes', icon: 'fa-cloud-arrow-up', label: '节点自动部署' },
                     { id: 'rules', icon: 'fa-shield-halved', label: '路由分流规则' },
                     { id: 'dns', icon: 'fa-globe', label: 'DNS 与上游' },
@@ -1047,7 +1311,15 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
 
                 const currentTabLabel = computed(() => tabs.find(t => t.id === activeTab.value)?.label);
 
+                
+                
+                const subscriptions = ref([]);
+                const lanAcls = ref([]);
+                const defaultLanPolicy = ref('proxy');
+                const connections = ref([]);
+
                 const nodes = ref([]);
+
                 const rules = ref([]);
                 const categories = ref({ geosite: [], geoip: [] });
                 const dns = ref({ local: '', remote: '', lazy: true, mode: 'smart' });
@@ -1351,9 +1623,12 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     }); 
                 }
 
-                onMounted(() => { loadData(true); setInterval(() => loadData(false), 5000); });
+                onMounted(() => { loadData(true); setInterval(() => loadData(false), 2000); });
 
                                 return {
+                    connections, subscriptions, lanAcls, defaultLanPolicy,
+                    showSubModal, subForm, showAclModal, aclForm, openAddSub, saveSub, deleteSub, syncSub, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
+
                     loadData,
                     isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, regenerateNode, loadNodeHistory, rollbackNode }
             }
