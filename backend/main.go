@@ -150,20 +150,42 @@ func initDB() {
 		`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);`,
 	}
 	for _, t := range tables {
-		db.Exec(t)
+		if _, err := db.Exec(t); err != nil {
+			log.Fatalf("[FATAL] failed to create table: %v", err)
+		}
 	}
 
-	db.Exec("ALTER TABLE nodes ADD COLUMN params TEXT DEFAULT '{}'")
-	db.Exec("ALTER TABLE nodes ADD COLUMN ping INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE routes_table ADD COLUMN miss_count INTEGER DEFAULT 0")
+	if _, err := db.Exec("ALTER TABLE nodes ADD COLUMN params TEXT DEFAULT '{}'"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		log.Printf("[WARN] ALTER TABLE failed: %v", err)
+	}
+	if _, err := db.Exec("ALTER TABLE nodes ADD COLUMN ping INTEGER DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		log.Printf("[WARN] ALTER TABLE failed: %v", err)
+	}
+	if _, err := db.Exec("ALTER TABLE routes_table ADD COLUMN miss_count INTEGER DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		log.Printf("[WARN] ALTER TABLE failed: %v", err)
+	}
 
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('mode', 'B')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_local', '119.29.29.29,223.5.5.5')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_remote', '1.1.1.1,8.8.8.8')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_lazy', 'true')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_mode', 'smart')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_enabled', 'true')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_time', '04:00')")
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('mode', 'B')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_local', '119.29.29.29,223.5.5.5')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_remote', '1.1.1.1,8.8.8.8')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_lazy', 'true')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_mode', 'smart')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_enabled', 'true')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_time', '04:00')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
 
 	var count int
 	if err := db.QueryRow("SELECT count(*) FROM rules").Scan(&count); err != nil && err != sql.ErrNoRows {
@@ -448,13 +470,17 @@ func applyMosdnsConfig() error {
 	} else {
 		log.Printf("[WARN] query dRows err: %v", err)
 	}
-	os.WriteFile(getPath("core", "mosdns", "proxy_domains.txt"), []byte(strings.Join(proxyDomains, "\n")), 0644)
+	if err := os.WriteFile(getPath("core", "mosdns", "proxy_domains.txt"), []byte(strings.Join(proxyDomains, "\n")), 0644); err != nil {
+		return fmt.Errorf("failed to write proxy_domains.txt: %v", err)
+	}
 
 	var mode string
 	db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
 	config := renderMosdnsConfig(local, remote, lazyStr == "true", mode)
 
-	os.WriteFile(getPath("core", "mosdns", "config.yaml"), []byte(config), 0644)
+	if err := os.WriteFile(getPath("core", "mosdns", "config.yaml"), []byte(config), 0644); err != nil {
+		return fmt.Errorf("failed to write mosdns config.yaml: %v", err)
+	}
 	err = exec.Command("systemctl", "restart", "mosdns").Run()
 	if err != nil {
 		return err
@@ -779,7 +805,9 @@ func applyXrayConfig() error {
 		return fmt.Errorf("xray config validation failed, check node parameters")
 	}
 
-	os.WriteFile(getPath("core", "xray", "config.json"), configData, 0644)
+	if err := os.WriteFile(getPath("core", "xray", "config.json"), configData, 0644); err != nil {
+		return fmt.Errorf("failed to write xray config.json: %v", err)
+	}
 	return exec.Command("systemctl", "restart", "xray").Run()
 }
 
