@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ProxyGW 透明代理管理系统</title>
@@ -21,7 +24,39 @@
             {{ toastMsg }}
         </div>
         
-                <!-- Node Edit Modal -->
+        <!-- LAN ACL Modal -->
+        <div v-if="showAclModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-lg p-6 max-w-md w-full">
+                <h3 class="text-lg font-bold mb-4">添加设备分流规则</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">类型</label>
+                        <select v-model="aclForm.type" class="w-full border rounded p-2 text-sm focus:outline-blue-500">
+                            <option value="mac">MAC 地址</option>
+                            <option value="ip">IP 地址 (含 IPv6)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">设备标识</label>
+                        <input type="text" v-model="aclForm.value" class="w-full border rounded p-2 text-sm focus:outline-blue-500" placeholder="aa:bb:cc:dd:ee:ff 或 192.168.x.x">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">路由策略</label>
+                        <select v-model="aclForm.policy" class="w-full border rounded p-2 text-sm focus:outline-blue-500">
+                            <option value="proxy">代理 (Proxy)</option>
+                            <option value="direct">直连 (Direct)</option>
+                            <option value="reject">拦截断网 (Reject)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end space-x-3">
+                    <button @click="showAclModal = false" class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">取消</button>
+                    <button @click="saveAcl" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50" :disabled="isSubmitting.acl">保存</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Node Edit Modal -->
         <div v-if="showNodeModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div class="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-4">
@@ -174,7 +209,7 @@
                     <button @click="showPwdModal = true" class="hover:text-white transition"><i class="fa-solid fa-key"></i> 修改密码</button>
                     <button @click="logout" class="hover:text-white transition"><i class="fa-solid fa-arrow-right-from-bracket"></i> 退出</button>
                 </div>
-                <div>ProxyGW v1.4.9 <br> Debian 13 | Xray | FRR</div>
+                <div>ProxyGW v1.5.0-beta <br> Debian 13 | Xray | FRR</div>
             </div>
         </aside>
 
@@ -207,7 +242,120 @@
             <div class="flex-1 overflow-auto p-8">
                 <transition name="fade" mode="out-in">
                     
+                    
+                    <!-- Connections -->
+                    <div v-if="activeTab === 'connections'" key="connections" class="h-full flex flex-col">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-semibold text-gray-700">实时连接追踪 (Top 200)</h3>
+                            <div class="flex items-center space-x-4">
+                                <input type="text" v-model="connSearch" placeholder="筛选客户端 IP..." class="px-3 py-1 border rounded text-sm focus:outline-blue-500" />
+                                <div class="text-sm text-gray-500">
+                                    <i class="fas fa-circle-notch fa-spin mr-1"></i> 实时更新中...
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded shadow flex-1 overflow-hidden flex flex-col">
+                            <div class="overflow-x-auto flex-1">
+                                <table class="w-full text-left border-collapse">
+                                    <thead class="bg-gray-100 sticky top-0 shadow-sm z-10">
+                                        <tr>
+                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">访问时间</th>
+                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">局域网客户端</th>
+                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">协议</th>
+                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">目标地址</th>
+                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">路由策略</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="text-sm divide-y divide-gray-100">
+                                        <tr v-if="filteredConnections.length === 0">
+                                            <td colspan="5" class="p-8 text-center text-gray-400">暂无连接数据...</td>
+                                        </tr>
+                                        <tr v-for="(conn, idx) in filteredConnections" :key="idx" class="hover:bg-blue-50 transition-colors">
+                                            <td class="p-3 text-gray-500 font-mono text-xs">{{ conn.time }}</td>
+                                            <td class="p-3 font-medium text-blue-600 font-mono">{{ conn.client }}</td>
+                                            <td class="p-3 text-gray-600">
+                                                <span class="px-2 py-0.5 rounded text-xs font-bold" 
+                                                    :class="conn.network === 'tcp' ? 'bg-indigo-100 text-indigo-700' : 'bg-teal-100 text-teal-700'">
+                                                    {{ conn.network.toUpperCase() }}
+                                                </span>
+                                            </td>
+                                            <td class="p-3 text-gray-700 font-mono">{{ conn.target }}</td>
+                                            <td class="p-3">
+                                                <span class="px-2 py-1 rounded text-xs font-bold flex items-center inline-flex"
+                                                    :class="{
+                                                        'bg-green-100 text-green-700': conn.policy.includes('proxy'),
+                                                        'bg-gray-200 text-gray-700': conn.policy.includes('direct'),
+                                                        'bg-red-100 text-red-700': conn.policy.includes('block')
+                                                    }">
+                                                    <i class="fas mr-1" :class="{
+                                                        'fa-paper-plane': conn.policy.includes('proxy'),
+                                                        'fa-arrow-right': conn.policy.includes('direct'),
+                                                        'fa-ban': conn.policy.includes('block')
+                                                    }"></i>
+                                                    {{ conn.policy }}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    
+                    <!-- LAN ACLs -->
+                    <div v-if="activeTab === 'lan_acls'" key="lan_acls" class="h-full flex flex-col">
+                        <div class="flex justify-between items-center mb-4">
+                            <div class="flex items-center space-x-4">
+                                <h3 class="text-lg font-semibold text-gray-700">局域网设备分流</h3>
+                                <div class="flex items-center bg-white border rounded px-3 py-1.5 shadow-sm">
+                                    <label class="text-sm font-medium text-gray-600 mr-2">网关全局兜底策略:</label>
+                                    <select v-model="defaultLanPolicy" @change="updateLanDefault" class="text-sm border-none focus:ring-0 outline-none font-bold" :class="defaultLanPolicy==='proxy' ? 'text-green-600' : 'text-gray-600'">
+                                        <option value="proxy">全局代理 (黑名单模式)</option>
+                                        <option value="direct">全局直连 (白名单模式)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button @click="openAddAcl" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 transition shadow">
+                                <i class="fas fa-plus mr-1"></i> 添加独立设备
+                            </button>
+                        </div>
+                        <div class="bg-white rounded shadow flex-1 overflow-hidden">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-gray-50 border-b">
+                                    <tr>
+                                        <th class="p-3 text-sm font-semibold text-gray-600">标识类型</th>
+                                        <th class="p-3 text-sm font-semibold text-gray-600">设备标识 (MAC/IP)</th>
+                                        <th class="p-3 text-sm font-semibold text-gray-600">独立路由策略</th>
+                                        <th class="p-3 text-sm font-semibold text-gray-600 text-right">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="text-sm divide-y">
+                                    <tr v-if="lanAcls.length === 0"><td colspan="4" class="p-8 text-center text-gray-400">无自定义设备策略，全部遵循全局策略。</td></tr>
+                                    <tr v-for="acl in lanAcls" :key="acl.id" class="hover:bg-gray-50">
+                                        <td class="p-3 font-mono text-xs text-gray-500 uppercase">{{ acl.type }}</td>
+                                        <td class="p-3 font-medium text-gray-800 font-mono">{{ acl.value }}</td>
+                                        <td class="p-3">
+                                            <span class="px-2 py-1 rounded text-xs font-bold"
+                                                :class="{
+                                                    'bg-green-100 text-green-700': acl.policy === 'proxy',
+                                                    'bg-gray-200 text-gray-700': acl.policy === 'direct',
+                                                    'bg-red-100 text-red-700': acl.policy === 'reject'
+                                                }">
+                                                {{ acl.policy.toUpperCase() }}
+                                            </span>
+                                        </td>
+                                        <td class="p-3 text-right">
+                                            <button @click="deleteAcl(acl.id)" class="text-red-500 hover:text-red-700" title="删除"><i class="fas fa-trash"></i></button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
                     <!-- Nodes -->
+
                     <div v-if="activeTab === 'nodes'" key="nodes">
                         <div class="flex justify-between mb-4">
                             <div class="space-x-2">
@@ -230,7 +378,9 @@
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200">
                                     <tr v-for="node in nodes" :key="node.id">
-                                        <td class="px-6 py-4 whitespace-nowrap">{{ node.name }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap">{{ node.name }}
+                                            <span v-if="node.is_default" class="ml-2 bg-yellow-100 text-yellow-800 text-xs px-2 py-0.5 rounded border border-yellow-300" title="网关默认兜底节点">默认</span>
+                                        </td>
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ node.address }}:{{ node.port }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap"><span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">{{ node.type }}</span></td>
                                         <td class="px-6 py-4 whitespace-nowrap">
@@ -246,6 +396,7 @@
                                             <button @click="toggleNode(node.id)" class="text-blue-600 hover:text-blue-900">{{ node.active ? '停用' : '启用' }}</button>
                                             <button @click="editNode(node)" class="text-indigo-600 hover:text-indigo-900">编辑</button>
                                             <button @click="deleteNode(node.id)" class="text-red-600 hover:text-red-900">删除</button>
+                                            <button v-if="!node.is_default && node.active" @click="setDefaultNode(node.id)" class="text-yellow-600 hover:text-yellow-900 ml-2" title="设为默认节点">设为默认</button>
                                         </td>
                                     </tr>
                                     <tr v-if="nodes.length === 0"><td colspan="6" class="px-6 py-4 text-center text-gray-500">暂无节点数据</td></tr>
@@ -535,16 +686,25 @@ PersistentKeepalive = 25
                                 </datalist>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">策略绑定 (对应的节点/出口)</label>
-                                <select v-model="newRule.policy" class="border border-gray-300 rounded px-3 py-2 w-48">
-                                    <option value="proxy">默认代理 (Proxy)</option>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">路由策略</label>
+                                <select v-model="newRule.action" class="border border-gray-300 rounded px-3 py-2 w-40">
+                                    <option value="proxy">全局代理 (Proxy)</option>
                                     <option value="direct">直连 (Direct)</option>
                                     <option value="block">拦截 (Block)</option>
-                                    <optgroup label="指定节点">
-                                        <option v-for="node in nodes" :key="node.id" :value="'proxy-' + node.id">
-                                            {{ node.name }}
-                                        </option>
-                                    </optgroup>
+                                    <option value="node">指定单节点</option>
+                                    <option value="ha">主备容灾 (HA)</option>
+                                </select>
+                            </div>
+                            <div v-if="newRule.action === 'node' || newRule.action === 'ha'">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">主用节点</label>
+                                <select v-model="newRule.primary" class="border border-gray-300 rounded px-3 py-2 w-40">
+                                    <option v-for="node in nodes" :key="node.id" :value="node.id">{{ node.name }}</option>
+                                </select>
+                            </div>
+                            <div v-if="newRule.action === 'ha'">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">备用节点 (Fallback)</label>
+                                <select v-model="newRule.standby" class="border border-gray-300 rounded px-3 py-2 w-40">
+                                    <option v-for="node in nodes" :key="node.id" :value="node.id">{{ node.name }}</option>
                                 </select>
                             </div>
                             <div>
@@ -568,8 +728,12 @@ PersistentKeepalive = 25
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ rule.value }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap">
                                             <span class="px-2 py-1 rounded text-xs font-bold"
-                                                  :class="{'bg-green-100 text-green-800': rule.policy==='direct', 'bg-blue-100 text-blue-800': rule.policy.startsWith('proxy'), 'bg-red-100 text-red-800': rule.policy==='block'}">
-                                                {{ rule.policy.startsWith('proxy-') ? (nodes.find(n => 'proxy-'+n.id === rule.policy)?.name || rule.policy) : rule.policy }}
+                                                  :class="{'bg-green-100 text-green-800': rule.policy==='direct', 'bg-blue-100 text-blue-800': rule.policy==='proxy' || rule.policy.startsWith('proxy-'), 'bg-red-100 text-red-800': rule.policy==='block', 'bg-purple-100 text-purple-800': rule.policy.startsWith('ha-')}">
+                                                {{ rule.policy === 'proxy' ? 'Proxy (全局)' : 
+                                                   rule.policy === 'direct' ? 'Direct (直连)' : 
+                                                   rule.policy === 'block' ? 'Block (拦截)' : 
+                                                   rule.policy.startsWith('proxy-') ? '节点: ' + (nodes.find(n => n.id == rule.policy.split('-')[1])?.name || rule.policy) : 
+                                                   rule.policy.startsWith('ha-') ? '主备: ' + (nodes.find(n => n.id == rule.policy.split('-')[1])?.name || '?') + ' -> ' + (nodes.find(n => n.id == rule.policy.split('-')[2])?.name || '?') : rule.policy }}
                                             </span>
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-right">
@@ -703,14 +867,20 @@ PersistentKeepalive = 25
                             </div>
                         </div>
 
-                        <div class="bg-white p-6 rounded-lg shadow">
-                            <h3 class="text-lg font-medium border-b pb-2 mb-4">Xray 透明代理架构分析 (现行最佳实践)</h3>
-                            <ul class="space-y-3 text-sm text-gray-700">
-                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>底层接管:</strong> Nftables 仅做无脑 TProxy 劫持，全量导入 Xray</li>
-                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>流量嗅探:</strong> Sniffing 开启 (http / tls / fakedns 还原真实域名)</li>
-                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>零延迟响应:</strong> 结合 Mosdns 瞬时返回 198.18.x.x 假 IP 消除等待</li>
-                                <li class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> <strong>路由中枢:</strong> 彻底由 Xray 内部 routing 引擎执行精确的内外网分流</li>
-                            </ul>
+                        <div class="bg-white p-6 rounded-lg shadow flex flex-col justify-center">
+                            <h3 class="text-lg font-medium border-b pb-2 mb-4">全景流量大盘</h3>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="bg-blue-50 p-4 rounded-lg flex flex-col items-center justify-center">
+                                    <span class="text-blue-500 text-sm font-bold mb-1"><i class="fa-solid fa-arrow-up mr-1"></i>上行速度</span>
+                                    <span class="text-2xl font-mono text-gray-800">{{ formatBytes(traffic.speed.up) }}/s</span>
+                                    <span class="text-xs text-gray-500 mt-2">24H 累计: {{ formatBytes(traffic.total_24h.up) }}</span>
+                                </div>
+                                <div class="bg-green-50 p-4 rounded-lg flex flex-col items-center justify-center">
+                                    <span class="text-green-500 text-sm font-bold mb-1"><i class="fa-solid fa-arrow-down mr-1"></i>下行速度</span>
+                                    <span class="text-2xl font-mono text-gray-800">{{ formatBytes(traffic.speed.down) }}/s</span>
+                                    <span class="text-xs text-gray-500 mt-2">24H 累计: {{ formatBytes(traffic.total_24h.down) }}</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -748,10 +918,44 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                                 const showNodeModal = ref(false);
                 const editingNode = ref({ id: null, name: '', type: 'Vmess', address: '', port: 443, uuid: '', params: '{}' });
                 const vlessParams = ref({ type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '', method: 'aes-256-gcm' });
+                const traffic = ref({ speed: { up: 0, down: 0 }, total_24h: { up: 0, down: 0 } });
+                const fetchTraffic = async () => {
+                    try {
+                        
+                        const res = await fetch('/api/traffic', { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') } });
+                        if (res.ok) traffic.value = await res.json();
+                    } catch (e) {}
+                };
+
                 const isSubmitting = ref({ apply: false, update: false, node: false, login: false });
                 const isLoading = ref({ apply: false, save: false });
 
+                
+                const showAclModal = ref(false);
+                const aclForm = ref({ type: 'mac', value: '', policy: 'direct' });
+
+                const openAddAcl = () => { aclForm.value = { type: 'mac', value: '', policy: 'direct' }; showAclModal.value = true; };
+                const saveAcl = async () => {
+                    isSubmitting.value.acl = true;
+                    try {
+                        let r = await apiFetch('/api/lan_acls', { method: 'POST', body: JSON.stringify(aclForm.value) });
+                        if(r.ok) { showToast('添加成功，防火墙已热重载'); showAclModal.value = false; loadData(false); }
+                        else { let d = await r.json(); showToast(d.error || '添加失败', 'error'); }
+                    } catch(e) { showToast('网络错误', 'error'); }
+                    finally { isSubmitting.value.acl = false; }
+                };
+                const deleteAcl = async (id) => {
+                    if(!confirm('确认删除此设备策略？')) return;
+                    await apiFetch('/api/lan_acls/' + id, { method: 'DELETE' });
+                    showToast('已删除，防火墙已热重载'); loadData(false);
+                };
+                const updateLanDefault = async () => {
+                    let r = await apiFetch('/api/lan_acls/default_policy', { method: 'POST', body: JSON.stringify({ policy: defaultLanPolicy.value }) });
+                    if(r.ok) showToast('网关全局策略已切换！防火墙热重载完成。');
+                };
+
                 const openAddNode = () => {
+
                     editingNode.value = { id: null, name: 'New Node', type: 'Vmess', address: '1.2.3.4', port: 443, uuid: '', params: '{}' };
                     vlessParams.value = { type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '', method: 'aes-256-gcm' };
                     showNodeModal.value = true;
@@ -1035,11 +1239,13 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 });
 
                 const tabs = [
-                    { id: 'system', icon: 'fa-gauge', label: '系统与更新' },
+                    { id: 'system', icon: 'fa-gauge', label: '系统状态' },
+                    { id: 'connections', icon: 'fa-network-wired', label: '实时连接追踪' },
                     { id: 'nodes', icon: 'fa-server', label: '节点管理' },
                     { id: 'remote_nodes', icon: 'fa-cloud-arrow-up', label: '节点自动部署' },
                     { id: 'rules', icon: 'fa-shield-halved', label: '路由分流规则' },
-                    { id: 'dns', icon: 'fa-globe', label: 'DNS 与上游' },
+                    { id: 'lan_acls', icon: 'fa-laptop-house', label: '设备分流规则' },
+                    { id: 'dns', icon: 'fa-globe', label: 'DNS 设置' },
                     { id: 'ospf', icon: 'fa-route', label: 'OSPF 状态' },
                     { id: 'xray_config', icon: 'fa-file-code', label: 'Xray 配置' },
                     { id: 'mosdns_config', icon: 'fa-file-lines', label: 'Mosdns 配置' },
@@ -1047,7 +1253,22 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
 
                 const currentTabLabel = computed(() => tabs.find(t => t.id === activeTab.value)?.label);
 
+                
+                
+                const lanAcls = ref([]);
+                const defaultLanPolicy = ref('proxy');
+                const connections = ref([]);
+
+                const connSearch = ref('');
+                const filteredConnections = computed(() => {
+                    if (!connSearch.value) return connections.value;
+                    const s = connSearch.value.toLowerCase();
+                    return connections.value.filter(c => c.client.toLowerCase().includes(s));
+                });
+
+
                 const nodes = ref([]);
+
                 const rules = ref([]);
                 const categories = ref({ geosite: [], geoip: [] });
                 const dns = ref({ local: '', remote: '', lazy: true, mode: 'smart' });
@@ -1130,6 +1351,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     loadRemoteNodes();
                 };
 
+                const setDefaultNode = async (id) => { await apiFetch(`/api/nodes/${id}/default`, {method: "PUT"}); showToast("已设为默认节点"); loadData(); };
                 const loadNodeHistory = async (id) => {
                     const res = await apiFetch('/api/remote_nodes/' + id + '/history');
                     nodeHistory.value = await res.json();
@@ -1251,8 +1473,19 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     }
                 };
 
+                
+                const formatBytes = (bytes) => {
+                    if (bytes === undefined || bytes === null || isNaN(bytes)) return '0 B';
+                    if (bytes === 0) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+                };
+
                 const loadData = async (isInit = false) => {
                     if (token.value) apiFetch('/api/status').then(r=>r.json()).then(d => sysStatus.value = d);
+                    fetchTraffic();
                     if (token.value && (isInit === true || !initLoaded)) {
                         apiFetch('/api/cron').then(r=>r.json()).then(d => { if(d) { cron.value.enabled = d.enabled; cron.value.time = d.time || '04:00'; }});
                         apiFetch('/api/dns').then(r=>r.json()).then(d => dns.value = d);
@@ -1317,10 +1550,19 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                 const deleteNode = (id) => { customConfirm("删除此节点？", async () => { await apiFetch(`/api/nodes/${id}`, {method: 'DELETE'}); loadData(); }); };
                 const toggleNode = async (id) => { await apiFetch(`/api/nodes/${id}/toggle`, {method: 'PUT'}); loadData(); };
 
-                const newRule = ref({ type: 'domain', value: '', policy: 'proxy' });
+                const newRule = ref({ type: 'domain', value: '', action: 'proxy', primary: '', standby: '', policy: 'proxy' });
                 const addRule = async () => {
                     if(!newRule.value.value) return showToast("匹配值不能为空");
-                    await apiFetch('/api/rules', { method: 'POST', body: JSON.stringify({ Type: newRule.value.type, Value: newRule.value.value, Policy: newRule.value.policy }) });
+                    let finalPolicy = newRule.value.action;
+                    if(finalPolicy === 'node') {
+                        if(!newRule.value.primary) return showToast("请选择指定节点");
+                        finalPolicy = 'proxy-' + newRule.value.primary;
+                    } else if(finalPolicy === 'ha') {
+                        if(!newRule.value.primary || !newRule.value.standby) return showToast("请选择主备节点");
+                        if(newRule.value.primary === newRule.value.standby) return showToast("主备节点不能相同");
+                        finalPolicy = 'ha-' + newRule.value.primary + '-' + newRule.value.standby;
+                    }
+                    await apiFetch('/api/rules', { method: 'POST', body: JSON.stringify({ Type: newRule.value.type, Value: newRule.value.value, Policy: finalPolicy }) });
                     newRule.value.value = '';
                     loadData();
                 };
@@ -1351,13 +1593,17 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     }); 
                 }
 
-                onMounted(() => { loadData(true); setInterval(() => loadData(false), 5000); });
+                onMounted(() => { loadData(true); setInterval(() => loadData(false), 2000); });
 
-                                return {
+                                return { traffic, formatBytes,
+                    connections, connSearch, filteredConnections, lanAcls, defaultLanPolicy,
+                    showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
+
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>
 </body>
 </html>
+<!-- test12345 -->

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"strconv"
 	"sync"
 	"time"
 
@@ -149,20 +150,42 @@ func initDB() {
 		`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);`,
 	}
 	for _, t := range tables {
-		db.Exec(t)
+		if _, err := db.Exec(t); err != nil {
+			log.Fatalf("[FATAL] failed to create table: %v", err)
+		}
 	}
 
-	db.Exec("ALTER TABLE nodes ADD COLUMN params TEXT DEFAULT '{}'")
-	db.Exec("ALTER TABLE nodes ADD COLUMN ping INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE routes_table ADD COLUMN miss_count INTEGER DEFAULT 0")
+	if _, err := db.Exec("ALTER TABLE nodes ADD COLUMN params TEXT DEFAULT '{}'"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		log.Printf("[WARN] ALTER TABLE failed: %v", err)
+	}
+	if _, err := db.Exec("ALTER TABLE nodes ADD COLUMN ping INTEGER DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		log.Printf("[WARN] ALTER TABLE failed: %v", err)
+	}
+	if _, err := db.Exec("ALTER TABLE routes_table ADD COLUMN miss_count INTEGER DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		log.Printf("[WARN] ALTER TABLE failed: %v", err)
+	}
 
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('mode', 'B')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_local', '119.29.29.29,223.5.5.5')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_remote', '1.1.1.1,8.8.8.8')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_lazy', 'true')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_mode', 'smart')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_enabled', 'true')")
-	db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_time', '04:00')")
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('mode', 'B')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_local', '119.29.29.29,223.5.5.5')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_remote', '1.1.1.1,8.8.8.8')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_lazy', 'true')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_mode', 'smart')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_enabled', 'true')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_time', '04:00')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
 
 	var count int
 	if err := db.QueryRow("SELECT count(*) FROM rules").Scan(&count); err != nil && err != sql.ErrNoRows {
@@ -328,6 +351,8 @@ func triggerCronReload() {
 	}
 }
 
+
+
 func cronUpdater() {
 	for {
 		var enabled, cronTime string
@@ -417,6 +442,9 @@ func formatUpstreams(addrs string, useSocks bool) string {
 }
 
 func applyMosdnsConfig() error {
+	applyMutex.Lock()
+	defer applyMutex.Unlock()
+	log.Println("[AUDIT] Applying Mosdns Config")
 	var local, remote, lazyStr string
 
 	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local); err != nil {
@@ -445,13 +473,17 @@ func applyMosdnsConfig() error {
 	} else {
 		log.Printf("[WARN] query dRows err: %v", err)
 	}
-	os.WriteFile(getPath("core", "mosdns", "proxy_domains.txt"), []byte(strings.Join(proxyDomains, "\n")), 0644)
+	if err := os.WriteFile(getPath("core", "mosdns", "proxy_domains.txt"), []byte(strings.Join(proxyDomains, "\n")), 0644); err != nil {
+		return fmt.Errorf("failed to write proxy_domains.txt: %v", err)
+	}
 
 	var mode string
 	db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
 	config := renderMosdnsConfig(local, remote, lazyStr == "true", mode)
 
-	os.WriteFile(getPath("core", "mosdns", "config.yaml"), []byte(config), 0644)
+	if err := os.WriteFile(getPath("core", "mosdns", "config.yaml"), []byte(config), 0644); err != nil {
+		return fmt.Errorf("failed to write mosdns config.yaml: %v", err)
+	}
 	err = exec.Command("systemctl", "restart", "mosdns").Run()
 	if err != nil {
 		return err
@@ -460,6 +492,10 @@ func applyMosdnsConfig() error {
 }
 
 func applyXrayConfig() error {
+	applyMutex.Lock()
+	defer applyMutex.Unlock()
+	log.Println("[AUDIT] Applying Xray Config")
+
 	var mode string
 	db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
 	config := buildBaseXrayConfig(mode)
@@ -469,6 +505,11 @@ func applyXrayConfig() error {
 		return err
 	}
 	defer rows.Close()
+	var defNodeStr string
+	db.QueryRow("SELECT value FROM settings WHERE key='default_node_id'").Scan(&defNodeStr)
+	defaultNodeId, _ := strconv.Atoi(defNodeStr)
+	
+	var activeIds []int
 	var proxyTags []string
 	for rows.Next() {
 		var name, ntype, address, uuid, paramsStr string
@@ -476,6 +517,9 @@ func applyXrayConfig() error {
 		if err := rows.Scan(&id, &name, &ntype, &address, &port, &uuid, &paramsStr); err != nil {
 			continue
 		}
+
+
+		activeIds = append(activeIds, id)
 
 		ntypeLow := strings.ToLower(ntype)
 
@@ -526,7 +570,7 @@ func applyXrayConfig() error {
 
 		outbound := params
 		outbound["protocol"] = ntypeLow
-		outbound["tag"] = fmt.Sprintf("proxy-%d", id)
+		outbound["tag"] = fmt.Sprintf("proxy-%d-out", id)
 
 		if settings, ok := outbound["settings"].(map[string]interface{}); ok {
 			if vnext, ok := settings["vnext"].([]interface{}); ok && len(vnext) > 0 {
@@ -566,16 +610,10 @@ func applyXrayConfig() error {
 				outbound["streamSettings"] = map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}}
 			}
 			config["outbounds"] = append(config["outbounds"].([]map[string]interface{}), outbound)
-			proxyTags = append(proxyTags, fmt.Sprintf("proxy-%d", id))
+			proxyTags = append(proxyTags, fmt.Sprintf("proxy-%d-out", id))
 		}
 	}
 
-	if len(proxyTags) > 0 {
-		config["outbounds"] = append(config["outbounds"].([]map[string]interface{}), map[string]interface{}{
-			"protocol": "freedom", "tag": "proxy",
-			"streamSettings": map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}},
-		})
-	}
 
 	rRows, err := db.Query("SELECT type, value, policy FROM rules")
 	if err != nil {
@@ -589,7 +627,26 @@ func applyXrayConfig() error {
 		if err := rRows.Scan(&rtype, &value, &policy); err != nil {
 			continue
 		}
-		rule := map[string]interface{}{"type": "field", "outboundTag": policy}
+		rule := map[string]interface{}{"type": "field"}
+
+		if policy == "direct" || policy == "block" {
+			rule["outboundTag"] = policy
+		} else if policy == "proxy" {
+			rule["balancerTag"] = "proxy-balancer"
+		} else if strings.HasPrefix(policy, "proxy-") {
+			// Single node binding (e.g. proxy-1)
+			rule["outboundTag"] = policy + "-out"
+		} else if strings.HasPrefix(policy, "ha-") {
+			// HA Mode (e.g. ha-1-2)
+			parts := strings.Split(strings.TrimPrefix(policy, "ha-"), "-")
+			if len(parts) == 2 {
+				rule["balancerTag"] = "bal-" + policy
+			} else {
+				rule["outboundTag"] = "proxy"
+			}
+		} else {
+			rule["outboundTag"] = policy
+		}
 
 		if rtype == "geosite" || rtype == "domain" {
 			rule["domain"] = []string{rtype + ":" + value}
@@ -625,12 +682,64 @@ func applyXrayConfig() error {
 		log.Printf("[WARN] rRows err: %v", err)
 	}
 
+
 	if len(proxyTags) > 0 {
-		for _, r := range rules {
-			if r["outboundTag"] == "proxy" {
-				r["outboundTag"] = proxyTags[0]
+		config["observatory"] = map[string]interface{}{
+			"subjectSelector": []string{"proxy-"},
+			"probeURL":        "http://cp.cloudflare.com/",
+			"probeInterval":   "30s",
+		}
+		routing := config["routing"].(map[string]interface{})
+		routing["balancers"] = []map[string]interface{}{
+			{
+				"tag":      "proxy-balancer",
+				"selector": []string{"proxy-"},
+				"strategy": map[string]interface{}{
+					"type": "leastPing",
+				},
+			},
+		}
+		
+		customBalancers := make(map[string]map[string]interface{})
+		actualDefault := 0
+		if len(activeIds) == 1 {
+			actualDefault = activeIds[0]
+		} else {
+			for _, aid := range activeIds {
+				if aid == defaultNodeId {
+					actualDefault = aid
+					break
+				}
 			}
 		}
+
+		for _, r := range rules {
+			if r["balancerTag"] == "proxy-balancer" {
+				if actualDefault > 0 {
+					delete(r, "balancerTag")
+					r["outboundTag"] = fmt.Sprintf("proxy-%d-out", actualDefault)
+				} else {
+					delete(r, "outboundTag")
+					r["balancerTag"] = "proxy-balancer"
+				}
+			}
+			if bTag, ok := r["balancerTag"].(string); ok && strings.HasPrefix(bTag, "bal-ha-") {
+				parts := strings.Split(strings.TrimPrefix(bTag, "bal-ha-"), "-")
+				if len(parts) == 2 {
+					customBalancers[bTag] = map[string]interface{}{
+						"tag": bTag,
+						"selector": []string{"proxy-" + parts[0] + "-out"},
+						"fallbackTag": "proxy-" + parts[1] + "-out",
+					}
+				}
+			}
+		}
+		
+		balancers := routing["balancers"].([]map[string]interface{})
+		for _, cb := range customBalancers {
+			balancers = append(balancers, cb)
+		}
+		routing["balancers"] = balancers
 	}
 	config["routing"].(map[string]interface{})["rules"] = rules
 
@@ -695,7 +804,16 @@ func applyXrayConfig() error {
 
 	configData, _ := json.MarshalIndent(config, "", "  ")
 
-	os.WriteFile(getPath("core", "xray", "config.json"), configData, 0644)
+	tempTestPath := "/tmp/proxygw_xray_test.json"
+	os.WriteFile(tempTestPath, configData, 0644)
+	if err := exec.Command(getPath("core", "xray", "xray"), "-test", "-config", tempTestPath).Run(); err != nil {
+		log.Printf("[ERROR] Xray config validation failed: %v. Config rejected.", err)
+		return fmt.Errorf("xray config validation failed, check node parameters")
+	}
+
+	if err := os.WriteFile(getPath("core", "xray", "config.json"), configData, 0644); err != nil {
+		return fmt.Errorf("failed to write xray config.json: %v", err)
+	}
 	return exec.Command("systemctl", "restart", "xray").Run()
 }
 
@@ -785,14 +903,21 @@ route-map OSPF-EXPORT permit 10
 
 func main() {
 	initDB()
+	go startTrafficMonitor()
 	syncFRRConfig()
 	go ospfController()
 	go cronUpdater()
 	applyMosdnsConfig()
 	applyXrayConfig()
+	
+	// Init connection tracking
+	os.MkdirAll("/run/proxygw", 0755)
+	StartConnectionTracker()
 
 	exec.Command("sh", "-c", "ip rule del fwmark 1 lookup tproxy 2>/dev/null || true; ip rule add fwmark 1 lookup tproxy").Run()
 	exec.Command("sh", "-c", "ip route del local default dev lo table tproxy 2>/dev/null || true; ip route add local default dev lo table tproxy").Run()
+	exec.Command("sh", "-c", "ip -6 rule del fwmark 1 lookup tproxy 2>/dev/null || true; ip -6 rule add fwmark 1 lookup tproxy").Run()
+	exec.Command("sh", "-c", "ip -6 route del local default dev lo table tproxy 2>/dev/null || true; ip -6 route add local default dev lo table tproxy").Run()
 
 	r := gin.Default()
 	registerAPIRoutes(r)

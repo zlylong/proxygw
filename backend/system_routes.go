@@ -205,6 +205,28 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
+	
+	api.GET("/traffic", func(c *gin.Context) {
+		trafficMutex.Lock()
+		upSpeed := currentSpeedUp
+		downSpeed := currentSpeedDown
+		trafficMutex.Unlock()
+
+		rows, err := db.Query("SELECT SUM(up_bytes), SUM(down_bytes) FROM traffic_history WHERE ts >= datetime('now', '-24 hours')")
+		var totalUp24, totalDown24 sql.NullInt64
+		if err == nil {
+			defer rows.Close()
+			if rows.Next() {
+				rows.Scan(&totalUp24, &totalDown24)
+			}
+		}
+		
+		c.JSON(200, gin.H{
+			"speed": gin.H{"up": upSpeed, "down": downSpeed},
+			"total_24h": gin.H{"up": totalUp24.Int64, "down": totalDown24.Int64},
+		})
+	})
+
 	api.GET("/ospf", func(c *gin.Context) {
 		var pub, cand int
 		if err := db.QueryRow("SELECT count(*) FROM routes_table WHERE status='published'").Scan(&pub); err != nil && err != sql.ErrNoRows {

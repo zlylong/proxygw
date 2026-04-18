@@ -1,0 +1,165 @@
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"strings"
+	"os"
+	"os/exec"
+	"text/template"
+)
+
+const nftablesTmpl = `#!/usr/sbin/nft -f
+flush ruleset
+table inet proxygw {
+    set mac_proxy {
+        type ether_addr
+        {{if .MacProxy}}elements = { {{.MacProxy}} }{{end}}
+    }
+    set mac_direct {
+        type ether_addr
+        {{if .MacDirect}}elements = { {{.MacDirect}} }{{end}}
+    }
+    set ip_proxy {
+        type ipv4_addr; flags interval
+        {{if .IPProxy}}elements = { {{.IPProxy}} }{{end}}
+    }
+    set ip_direct {
+        type ipv4_addr; flags interval
+        {{if .IPDirect}}elements = { {{.IPDirect}} }{{end}}
+    }
+    set ip6_proxy {
+        type ipv6_addr; flags interval
+        {{if .IP6Proxy}}elements = { {{.IP6Proxy}} }{{end}}
+    }
+    set ip6_direct {
+        type ipv6_addr; flags interval
+        {{if .IP6Direct}}elements = { {{.IP6Direct}} }{{end}}
+    }
+
+    chain prerouting {
+        type filter hook prerouting priority mangle; policy accept;
+        meta mark 0x02 return
+        
+        # Local & Multicast Bypasses
+        ip daddr { 127.0.0.0/8, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 224.0.0.0/4, 255.255.255.255/32 } return
+        ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } return
+
+        # LAN ACL overrides
+        ether saddr @mac_direct return
+        ip saddr @ip_direct return
+        ip6 saddr @ip6_direct return
+        
+        ether saddr @mac_proxy meta l4proto { tcp, udp } meta nfproto ipv4 mark set 1 tproxy ip to 127.0.0.1:12345 accept
+        ether saddr @mac_proxy meta l4proto { tcp, udp } meta nfproto ipv6 mark set 1 tproxy ip6 to [::1]:12345 accept
+        
+        ip saddr @ip_proxy meta l4proto { tcp, udp } mark set 1 tproxy ip to 127.0.0.1:12345 accept
+        ip6 saddr @ip6_proxy meta l4proto { tcp, udp } mark set 1 tproxy ip6 to [::1]:12345 accept
+
+        # Default policy
+        {{if eq .DefaultPolicy "proxy"}}
+        meta l4proto { tcp, udp } meta nfproto ipv4 mark set 1 tproxy ip to 127.0.0.1:12345 accept
+        meta l4proto { tcp, udp } meta nfproto ipv6 mark set 1 tproxy ip6 to [::1]:12345 accept
+        {{else}}
+        return
+        {{end}}
+    }
+
+    chain output {
+        type route hook output priority mangle; policy accept;
+        meta mark 0x02 return
+        ip daddr { 127.0.0.0/8, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 224.0.0.0/4, 255.255.255.255/32 } return
+        ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } return
+        meta l4proto { tcp, udp } mark set 1 accept
+    }
+}
+`
+
+func applyNftablesConfig() error {
+	var defaultPolicy string
+	if err := db.QueryRow("SELECT value FROM settings WHERE key='lan_default_policy'").Scan(&defaultPolicy); err != nil {
+		defaultPolicy = "proxy"
+	}
+
+	rows, err := db.Query("SELECT type, value, policy FROM lan_acls")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+
+	var macProxy, macDirect, ipProxy, ipDirect, ip6Proxy, ip6Direct string
+	for rows.Next() {
+		var t, v, p string
+		if err := rows.Scan(&t, &v, &p); err == nil {
+			if t == "mac" {
+				if p == "proxy" {
+					if macProxy != "" { macProxy += ", " }
+					macProxy += v
+				} else if p == "direct" {
+					if macDirect != "" { macDirect += ", " }
+					macDirect += v
+				}
+			} else if t == "ip" {
+				isIPv6 := strings.Contains(v, ":")
+				if p == "proxy" {
+					if isIPv6 {
+						if ip6Proxy != "" { ip6Proxy += ", " }
+						ip6Proxy += v
+					} else {
+						if ipProxy != "" { ipProxy += ", " }
+						ipProxy += v
+					}
+				} else if p == "direct" {
+					if isIPv6 {
+						if ip6Direct != "" { ip6Direct += ", " }
+						ip6Direct += v
+					} else {
+						if ipDirect != "" { ipDirect += ", " }
+						ipDirect += v
+					}
+				}
+			}
+		}
+	}
+
+	data := struct {
+		MacProxy      string
+		MacDirect     string
+		IPProxy       string
+		IPDirect      string
+		IP6Proxy      string
+		IP6Direct     string
+		DefaultPolicy string
+	}{
+		MacProxy:      macProxy,
+		MacDirect:     macDirect,
+		IPProxy:       ipProxy,
+		IPDirect:      ipDirect,
+		IP6Proxy:      ip6Proxy,
+		IP6Direct:     ip6Direct,
+		DefaultPolicy: defaultPolicy,
+	}
+
+
+	tmpl, err := template.New("nftables").Parse(nftablesTmpl)
+	if err != nil {
+		return fmt.Errorf("failed to parse template: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return fmt.Errorf("failed to execute template: %v", err)
+	}
+
+	if err := os.WriteFile("/etc/nftables.conf", buf.Bytes(), 0755); err != nil {
+		return fmt.Errorf("failed to write config: %v", err)
+	}
+
+	cmd := exec.Command("nft", "-f", "/etc/nftables.conf")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("nft apply failed: %v, out: %s", err, out)
+	}
+
+	return nil
+}
