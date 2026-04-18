@@ -1623,8 +1623,8 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                 onMounted(() => { loadData(true); setInterval(() => loadData(false), 2000); });
 
                                 return {
-                    connections, subscriptions, lanAcls, defaultLanPolicy,
-                    showSubModal, subForm, showAclModal, aclForm, openAddSub, saveSub, deleteSub, syncSub, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
+                    connections, lanAcls, defaultLanPolicy,
+                    showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
 
                     loadData,
                     isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
