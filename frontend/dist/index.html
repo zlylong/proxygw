@@ -1559,7 +1559,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                         apiFetch('/api/dns').then(r=>r.json()).then(d => dns.value = d);
                         initLoaded = true;
                     }
-                    if(token.value && activeTab.value === 'devices') apiFetch('/api/lan_acls').then(r=>r.json()).then(d => { lanAcls.value = d.acls || []; defaultLanPolicy.value = d.default_policy || 'proxy'; });
+                    if(token.value && activeTab.value === 'lan_acls') apiFetch('/api/lan_acls').then(r=>r.json()).then(d => { lanAcls.value = d.acls || []; defaultLanPolicy.value = d.default_policy || 'proxy'; });
                     if(token.value && activeTab.value === 'nodes') apiFetch('/api/nodes').then(r=>r.json()).then(d => nodes.value = d);
                     if(token.value && activeTab.value === 'remote_nodes') loadRemoteNodes();
                     if(token.value && activeTab.value === 'rules') { apiFetch('/api/rules').then(r=>r.json()).then(d => rules.value = d); if(categories.value.geosite.length===0) apiFetch('/api/rules/categories').then(r=>r.json()).then(d => categories.value = d); }
