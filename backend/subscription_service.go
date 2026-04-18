@@ -100,45 +100,6 @@ func syncSubscription(subID string, subURL string) error {
 				name, "vmess", address, port, uuid, subID, string(pBytes))
 
 
-		} else if strings.HasPrefix(line, "hy2://") {
-			u, err := url.Parse(line)
-			if err != nil {
-				continue
-			}
-			uuid := u.User.Username()
-			if uuid == "" {
-				uuid, _ = u.User.Password()
-			}
-			address := u.Hostname()
-			portStr := u.Port()
-			port, _ := strconv.Atoi(portStr)
-			name, _ := url.QueryUnescape(u.Fragment)
-			if name == "" {
-				name = address
-			}
-
-			q := u.Query()
-			params := map[string]interface{}{
-				"type": "tcp", // Hysteria2 is UDP based but Xray routing might need this
-			}
-			
-			if sni := q.Get("sni"); sni != "" {
-				params["sni"] = sni
-			}
-			if insecure := q.Get("insecure"); insecure != "" {
-				params["insecure"] = insecure
-			}
-			if obfs := q.Get("obfs"); obfs != "" {
-				params["obfs"] = obfs
-			}
-			if obfsPassword := q.Get("obfs-password"); obfsPassword != "" {
-				params["obfsPassword"] = obfsPassword
-			}
-
-			pBytes, _ := json.Marshal(params)
-			tx.Exec("INSERT INTO nodes (name, type, address, port, uuid, active, subscription_id, params) VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
-				name, "hysteria2", address, port, uuid, subID, string(pBytes))
-
 		} else if strings.HasPrefix(line, "vless://") || strings.HasPrefix(line, "trojan://") {
 			u, err := url.Parse(line)
 			if err != nil {
