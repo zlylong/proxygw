@@ -12,7 +12,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"regexp"
 	"runtime"
@@ -97,7 +96,6 @@ func normalizeUpstreamCSV(raw string) (string, bool) {
 	}
 	return strings.Join(cleaned, ","), true
 }
-
 
 func getRemoteFileContent(urlStr string) (string, error) {
 	resp, err := httpClient.Get(urlStr)

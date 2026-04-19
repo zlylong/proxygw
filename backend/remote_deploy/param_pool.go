@@ -1,9 +1,9 @@
 package remote_deploy
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"fmt"
-	"crypto/rand"
 	"math/big"
 	"sync"
 )

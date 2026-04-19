@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 func getAppRoot() string {
@@ -17,4 +16,3 @@ func getPath(elem ...string) string {
 	paths := append([]string{getAppRoot()}, elem...)
 	return filepath.Join(paths...)
 }
-
