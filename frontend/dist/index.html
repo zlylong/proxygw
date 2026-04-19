@@ -198,7 +198,7 @@
                         <a href="#" @click.prevent="activeTab = tab.id; loadData()" 
                            :class="['flex items-center px-6 py-3 transition-colors duration-200', 
                                     activeTab === tab.id ? 'bg-blue-600 text-white border-l-4 border-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-white border-l-4 border-transparent']">
-                            <i :class="['w-6', tab.icon]"></i>
+                            <i :class="['fa-solid w-6', tab.icon]"></i>
                             <span>{{ tab.label }}</span>
                         </a>
                     </li>
@@ -1285,11 +1285,11 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 });
 
                 const tabs = [
-                    { id: 'system', icon: 'fa-gauge', label: '系统状态' },
-                    { id: 'connections', icon: 'fa-network-wired', label: '实时连接追踪' },
+                    { id: 'system', icon: 'fa-gauge-high', label: '系统状态' },
+                    { id: 'connections', icon: 'fa-satellite-dish', label: '实时连接追踪' },
                     { id: 'nodes', icon: 'fa-server', label: '节点管理' },
                     { id: 'remote_nodes', icon: 'fa-cloud-arrow-up', label: '节点自动部署' },
-                    { id: 'rules', icon: 'fa-shield-halved', label: '路由分流规则' },
+                    { id: 'rules', icon: 'fa-route', label: '路由分流规则' },
                     { id: 'lan_acls', icon: 'fa-laptop-house', label: '设备分流规则', hideModeBC: true },
                     { id: 'dns', icon: 'fa-globe', label: 'DNS 设置' },
                     { id: 'ospf', icon: 'fa-route', label: 'OSPF 状态' },
