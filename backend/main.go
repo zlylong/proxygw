@@ -263,10 +263,10 @@ func ospfController() {
 		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil && err != sql.ErrNoRows {
 			log.Printf("[WARN] SELECT value FROM settings WHERE key='mode' err: %v", err)
 		}
-		if mode != "C" {
+		if mode != "C" && mode != "B" {
 			db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
 		}
-		if mode != "C" {
+		if mode != "C" && mode != "B" {
 			continue
 		}
 
@@ -774,6 +774,33 @@ func applyXrayConfig() error {
 			}
 		}
 		geoipRows.Close()
+	}
+
+	// Mode C: Support Domain Extraction to IP
+	if mode == "C" {
+		domainRows, err := db.Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")
+		if err == nil {
+			for domainRows.Next() {
+				var domain string
+				if err := domainRows.Scan(&domain); err == nil {
+					ips, err := net.LookupIP(domain)
+					if err == nil {
+						for _, ip := range ips {
+							if ipv4 := ip.To4(); ipv4 != nil {
+								ipStr := ipv4.String()
+								if !staticIPsMap[ipStr] {
+									staticIPs = append(staticIPs, ipStr)
+									staticIPsMap[ipStr] = true
+								}
+							}
+						}
+					} else {
+						log.Printf("[WARN] Domain rule %s resolution failed: %v", domain, err)
+					}
+				}
+			}
+			domainRows.Close()
+		}
 	}
 
 	// Mark removed static rules for deletion by ospfController
