@@ -1,5 +1,15 @@
 # ProxyGW Changelog
 
+## [1.5.5] - 2026-04-19
+### ✨ 新特性 (Features)
+- **底层架构重构**: OSPF 宣告引擎与 FakeIP / Xray 解耦，引入守护进程 `domainIPUpdater`。
+- **Mode B 混合模式强化**: 现已支持在 Fake-IP 模式下动态下发指定的真实 IP 给 OSPF（实现 FakeIP 与 IP 路由双轨并行）。
+- **Mode C 域名自愈追踪**: 在纯 OSPF 模式下，现已支持直接使用 Domain 域名规则。后台会自动监控并在 DNS IP（如 CDN 节点）发生改变时，全自动、无抖动地替换 OSPF 广播路由。
+
+### 🐞 修复 (Bug Fixes)
+- 修复了此前在 OSPF 下发路由时高频重置路由状态导致的主路由 CPU 抖动问题。
+- 完善并修正了官方说明文档中的路由工作模式逻辑。
+
 ## [1.5.0] - 2026-04-18
 ### 🚀 Features & Architectural Purity
 - **架构净化 (Pure Architecture)**: 彻底移除了 Hysteria2、Sing-box 以及相关生态的残留支持，保持纯净的 Xray + Mosdns + FRR/Nftables 极简底层架构。
