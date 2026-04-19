@@ -160,6 +160,10 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			exec.Command("systemctl", "start", "frr").Run()
 		}
 		syncFRRConfig()
+		if err := applyNftablesConfig(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Nftables failed: " + err.Error()})
+			return
+		}
 		if err := applyMosdnsConfig(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Mosdns failed: " + err.Error()})
 			return

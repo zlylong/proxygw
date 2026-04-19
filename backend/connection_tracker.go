@@ -5,7 +5,6 @@ import (
 	"container/ring"
 	"net/http"
 	"os"
-	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
@@ -60,12 +59,35 @@ func StartConnectionTracker() {
 		var reader *bufio.Reader
 
 		for {
-			if file == nil {
+						if file == nil {
 				file, err = os.Open(logPath)
 				if err != nil {
 					time.Sleep(2 * time.Second)
 					continue
 				}
+				// Parse existing lines before tailing
+				scanner := bufio.NewScanner(file)
+				for scanner.Scan() {
+					line := scanner.Text()
+					matches := logRegex.FindStringSubmatch(line)
+					if len(matches) == 6 {
+						record := ConnectionRecord{
+							Time:    matches[1],
+							Client:  matches[2],
+							Network: matches[3],
+							Target:  matches[4],
+							Policy:  matches[5],
+						}
+						if strings.HasPrefix(record.Client, "127.0.0.1") || record.Policy == "api" || record.Policy == "dns-out" {
+							continue
+						}
+						connRingMutex.Lock()
+						connRing.Value = record
+						connRing = connRing.Next()
+						connRingMutex.Unlock()
+					}
+				}
+				// Seek to the end to start tailing
 				file.Seek(0, 2)
 				reader = bufio.NewReader(file)
 			}
@@ -107,11 +129,12 @@ func StartConnectionTracker() {
 
 	go func() {
 		for {
-			time.Sleep(1 * time.Hour)
+			time.Sleep(5 * time.Minute)
 			stat, err := os.Stat(logPath)
 			if err == nil && stat.Size() > 5*1024*1024 {
-				os.Remove(logPath)
-				exec.Command("systemctl", "kill", "-s", "SIGUSR1", "proxygw-xray").Run()
+				// Safely truncate the log file to prevent tmpfs overflow
+				// Xray opens file with O_APPEND, so truncate to 0 works perfectly
+				os.Truncate(logPath, 0)
 			}
 		}
 	}()
@@ -119,9 +142,27 @@ func StartConnectionTracker() {
 
 func registerConnectionRoutes(r *gin.RouterGroup) {
 	r.GET("/connections", func(c *gin.Context) {
+		ip := c.Query("ip")
+		allConns := GetRecentConnections()
+		
+		if ip == "" {
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"data":    []ConnectionRecord{},
+			})
+			return
+		}
+
+		var filtered []ConnectionRecord
+		for _, conn := range allConns {
+			if strings.Contains(strings.ToLower(conn.Client), strings.ToLower(ip)) {
+				filtered = append(filtered, conn)
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"data":    GetRecentConnections(),
+			"data":    filtered,
 		})
 	})
 }

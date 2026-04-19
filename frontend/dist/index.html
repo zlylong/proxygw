@@ -194,7 +194,7 @@
             </div>
             <nav class="flex-1 mt-6">
                 <ul class="space-y-2">
-                    <li v-for="tab in tabs" :key="tab.id">
+                    <li v-for="tab in tabs.filter(t => !(t.hideModeBC && sysStatus?.mode !== 'A'))" :key="tab.id">
                         <a href="#" @click.prevent="activeTab = tab.id; loadData()" 
                            :class="['flex items-center px-6 py-3 transition-colors duration-200', 
                                     activeTab === tab.id ? 'bg-blue-600 text-white border-l-4 border-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-white border-l-4 border-transparent']">
@@ -246,11 +246,14 @@
                     <!-- Connections -->
                     <div v-if="activeTab === 'connections'" key="connections" class="h-full flex flex-col">
                         <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-lg font-semibold text-gray-700">实时连接追踪 (Top 200)</h3>
+                            <h3 class="text-lg font-semibold text-gray-700">实时连接追踪</h3>
                             <div class="flex items-center space-x-4">
-                                <input type="text" v-model="connSearch" placeholder="筛选客户端 IP..." class="px-3 py-1 border rounded text-sm focus:outline-blue-500" />
-                                <div class="text-sm text-gray-500">
-                                    <i class="fas fa-circle-notch fa-spin mr-1"></i> 实时更新中...
+                                <input type="text" v-model="connSearch" placeholder="输入IP后开始追踪..." class="px-3 py-1 border rounded text-sm focus:outline-blue-500" />
+                                <div class="text-sm text-gray-500" v-if="connSearch">
+                                    <i class="fas fa-circle-notch fa-spin mr-1"></i> 追踪中...
+                                </div>
+                                <div class="text-sm text-gray-400" v-else>
+                                    <i class="fas fa-pause mr-1"></i> 追踪已暂停
                                 </div>
                             </div>
                         </div>
@@ -885,22 +888,43 @@ PersistentKeepalive = 25
                     </div>
 
                 
-                    <!-- Xray Config -->
-                    <div v-else-if="activeTab === 'xray_config'" key="xray_config">
-                        <div class="flex justify-between items-center mb-4">
-                            <h2 class="text-xl font-bold">Xray Core 配置 (自动生成)</h2>
-                            <button @click="loadConfigs" class="text-gray-500 hover:text-blue-500"><i class="fa-solid fa-rotate"></i> 刷新</button>
+                    
+                    <!-- Syslogs Tab -->
+                    <div v-else-if="activeTab === 'syslogs'" key="syslogs" class="space-y-4 h-full flex flex-col pb-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <h2 class="text-xl font-bold">核心系统日志</h2>
+                            <button @click="fetchSyslogs(currentLogTab)" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded text-sm transition">
+                                <i class="fa-solid fa-sync mr-1"></i>刷新
+                            </button>
                         </div>
-                        <pre class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-x-auto text-sm" style="height: 70vh;">{{ xrayConfigStr }}</pre>
+                        
+                        <div class="flex border-b border-gray-200">
+                            <button @click="currentLogTab = 'proxygw'; fetchSyslogs('proxygw')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'proxygw', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'proxygw'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">ProxyGW (控制面)</button>
+                            <button @click="currentLogTab = 'xray'; fetchSyslogs('xray')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'xray', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'xray'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Xray-Core (转发面)</button>
+                            <button @click="currentLogTab = 'mosdns'; fetchSyslogs('mosdns')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'mosdns', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'mosdns'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Mosdns (解析面)</button>
+                        </div>
+
+                        <div class="bg-[#1e1e1e] text-[#00ff00] font-mono p-4 rounded-lg flex-1 overflow-y-auto text-xs shadow-inner" ref="syslogsContainer" style="min-height: 400px; white-space: pre-wrap;">{{ syslogs[currentLogTab] || 'Loading logs...' }}</div>
                     </div>
 
-                    <!-- Mosdns Config -->
-                    <div v-else-if="activeTab === 'mosdns_config'" key="mosdns_config">
-                        <div class="flex justify-between items-center mb-4">
-                            <h2 class="text-xl font-bold">Mosdns 配置</h2>
-                            <button @click="loadConfigs" class="text-gray-500 hover:text-blue-500"><i class="fa-solid fa-rotate"></i> 刷新</button>
+                    <!-- Configs Panel -->
+                    <div v-else-if="activeTab === 'configs'" key="configs" class="space-y-4 h-full flex flex-col pb-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <h2 class="text-xl font-bold">底层配置信息面板 (自动生成)</h2>
+                            <button @click="loadConfigs" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded text-sm transition">
+                                <i class="fa-solid fa-sync mr-1"></i>刷新
+                            </button>
                         </div>
-                        <pre class="bg-gray-900 text-yellow-400 p-4 rounded-lg overflow-x-auto text-sm" style="height: 70vh;">{{ mosdnsConfigStr }}</pre>
+                        
+                        <div class="flex border-b border-gray-200">
+                            <button @click="currentConfigTab = 'xray'" :class="{'border-blue-500 text-blue-600': currentConfigTab === 'xray', 'border-transparent text-gray-500 hover:text-gray-700': currentConfigTab !== 'xray'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Xray Core 配置</button>
+                            <button @click="currentConfigTab = 'mosdns'" :class="{'border-blue-500 text-blue-600': currentConfigTab === 'mosdns', 'border-transparent text-gray-500 hover:text-gray-700': currentConfigTab !== 'mosdns'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Mosdns 配置</button>
+                            <button @click="currentConfigTab = 'nftables'" :class="{'border-blue-500 text-blue-600': currentConfigTab === 'nftables', 'border-transparent text-gray-500 hover:text-gray-700': currentConfigTab !== 'nftables'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Nftables 配置</button>
+                        </div>
+
+                        <pre v-if="currentConfigTab === 'xray'" class="bg-[#1e1e1e] text-[#00ff00] p-4 rounded-lg flex-1 overflow-x-auto text-xs shadow-inner" style="min-height: 400px; margin-top: 0;">{{ xrayConfigStr }}</pre>
+                        <pre v-if="currentConfigTab === 'mosdns'" class="bg-[#1e1e1e] text-yellow-400 p-4 rounded-lg flex-1 overflow-x-auto text-xs shadow-inner" style="min-height: 400px; margin-top: 0;">{{ mosdnsConfigStr }}</pre>
+                        <pre v-if="currentConfigTab === 'nftables'" class="bg-[#1e1e1e] text-blue-400 p-4 rounded-lg flex-1 overflow-x-auto text-xs shadow-inner" style="min-height: 400px; margin-top: 0;">{{ nftablesConfigStr }}</pre>
                     </div>
 
                         </transition>
@@ -918,6 +942,28 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                                 const showNodeModal = ref(false);
                 const editingNode = ref({ id: null, name: '', type: 'Vmess', address: '', port: 443, uuid: '', params: '{}' });
                 const vlessParams = ref({ type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '', method: 'aes-256-gcm' });
+                
+                const syslogs = ref({ proxygw: '', xray: '', mosdns: '' });
+                const currentLogTab = ref('proxygw');
+                const syslogsContainer = ref(null);
+
+                const fetchSyslogs = async (service) => {
+                    try {
+                        const res = await fetch(`/api/logs/${service}`, { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') } });
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.success) {
+                                syslogs.value[service] = data.logs;
+                                setTimeout(() => {
+                                    if (syslogsContainer.value) {
+                                        syslogsContainer.value.scrollTop = syslogsContainer.value.scrollHeight;
+                                    }
+                                }, 50);
+                            }
+                        }
+                    } catch (e) {}
+                };
+
                 const traffic = ref({ speed: { up: 0, down: 0 }, total_24h: { up: 0, down: 0 } });
                 const fetchTraffic = async () => {
                     try {
@@ -1244,11 +1290,11 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     { id: 'nodes', icon: 'fa-server', label: '节点管理' },
                     { id: 'remote_nodes', icon: 'fa-cloud-arrow-up', label: '节点自动部署' },
                     { id: 'rules', icon: 'fa-shield-halved', label: '路由分流规则' },
-                    { id: 'lan_acls', icon: 'fa-laptop-house', label: '设备分流规则' },
+                    { id: 'lan_acls', icon: 'fa-laptop-house', label: '设备分流规则', hideModeBC: true },
                     { id: 'dns', icon: 'fa-globe', label: 'DNS 设置' },
                     { id: 'ospf', icon: 'fa-route', label: 'OSPF 状态' },
-                    { id: 'xray_config', icon: 'fa-file-code', label: 'Xray 配置' },
-                    { id: 'mosdns_config', icon: 'fa-file-lines', label: 'Mosdns 配置' },
+                    { id: 'configs', icon: 'fa-file-code', label: '配置信息面板' },
+                    { id: 'syslogs', icon: 'fa-terminal', label: '核心日志面板' },
                 ];
 
                 const currentTabLabel = computed(() => tabs.find(t => t.id === activeTab.value)?.label);
@@ -1284,10 +1330,13 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 
                 const xrayConfigStr = ref("");
                 const mosdnsConfigStr = ref("");
+                const nftablesConfigStr = ref("");
+                const currentConfigTab = ref("xray");
 
                 const loadConfigs = async () => {
                     apiFetch('/api/config/xray').then(r => r.text()).then(t => xrayConfigStr.value = t);
                     apiFetch('/api/config/mosdns').then(r => r.text()).then(t => mosdnsConfigStr.value = t);
+                    apiFetch('/api/config/nftables').then(r => r.text()).then(t => nftablesConfigStr.value = t);
                 };
 
                 let initLoaded = false;
@@ -1483,19 +1532,43 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
                 };
 
+                
+                const fetchConnections = async () => {
+                    if (!connSearch.value || connSearch.value.trim() === '') {
+                        connections.value = [];
+                        return;
+                    }
+                    try {
+                        const res = await fetch('/api/connections?ip=' + encodeURIComponent(connSearch.value.trim()), { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') } });
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.success && data.data) {
+                                connections.value = data.data;
+                            }
+                        }
+                    } catch (e) {}
+                };
+
                 const loadData = async (isInit = false) => {
                     if (token.value) apiFetch('/api/status').then(r=>r.json()).then(d => sysStatus.value = d);
                     fetchTraffic();
+                    if (activeTab.value === 'connections') fetchConnections();
+
+                    if (typeof activeTab !== 'undefined' && activeTab && activeTab.value === 'syslogs') {
+                        fetchSyslogs(currentLogTab.value);
+                    }
+
                     if (token.value && (isInit === true || !initLoaded)) {
                         apiFetch('/api/cron').then(r=>r.json()).then(d => { if(d) { cron.value.enabled = d.enabled; cron.value.time = d.time || '04:00'; }});
                         apiFetch('/api/dns').then(r=>r.json()).then(d => dns.value = d);
                         initLoaded = true;
                     }
+                    if(token.value && activeTab.value === 'lan_acls') apiFetch('/api/lan_acls').then(r=>r.json()).then(d => { lanAcls.value = d.acls || []; defaultLanPolicy.value = d.default_policy || 'proxy'; });
                     if(token.value && activeTab.value === 'nodes') apiFetch('/api/nodes').then(r=>r.json()).then(d => nodes.value = d);
                     if(token.value && activeTab.value === 'remote_nodes') loadRemoteNodes();
                     if(token.value && activeTab.value === 'rules') { apiFetch('/api/rules').then(r=>r.json()).then(d => rules.value = d); if(categories.value.geosite.length===0) apiFetch('/api/rules/categories').then(r=>r.json()).then(d => categories.value = d); }
                     if(token.value && activeTab.value === 'ospf') apiFetch('/api/ospf').then(r=>r.json()).then(d => ospf.value = d);
-                    if(token.value && (activeTab.value === 'xray_config' || activeTab.value === 'mosdns_config')) loadConfigs();
+                    if(token.value && activeTab.value === 'configs') loadConfigs();
  
 };
 
@@ -1595,12 +1668,12 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
 
                 onMounted(() => { loadData(true); setInterval(() => loadData(false), 2000); });
 
-                                return { traffic, formatBytes,
+                                return { syslogs, currentLogTab, syslogsContainer, fetchSyslogs, traffic, formatBytes,
                     connections, connSearch, filteredConnections, lanAcls, defaultLanPolicy,
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
-
+                    currentConfigTab,
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>
