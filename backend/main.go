@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
@@ -295,15 +296,25 @@ func ospfController() {
 		}
 
 		log.Printf("[DEBUG] toDel len = %d", len(toDel))
-		for _, ip := range toDel {
-			addOspfLog("[DEL] " + ip + " (Miss count >= 3)")
-			exec.Command("vtysh", "-c", "conf t", "-c", fmt.Sprintf("no ip route %s 127.0.0.1 tag 100", func(s string) string {
-				if strings.Contains(s, "/") {
-					return s
+		if len(toDel) > 0 {
+			var buf bytes.Buffer
+			buf.WriteString("conf t\n")
+			tx, _ := db.Begin()
+			for _, ip := range toDel {
+				addOspfLog("[DEL] " + ip + " (Miss count >= 3)")
+				routeStr := ip
+				if !strings.Contains(ip, "/") {
+					routeStr += "/32"
 				}
-				return s + "/32"
-			}(ip))).Run()
-			db.Exec("DELETE FROM routes_table WHERE ip=?", ip)
+				buf.WriteString(fmt.Sprintf("no ip route %s 127.0.0.1 tag 100\n", routeStr))
+				tx.Exec("DELETE FROM routes_table WHERE ip=?", ip)
+			}
+			tx.Commit()
+
+			tmpFile := "/tmp/proxygw_vtysh_del.conf"
+			os.WriteFile(tmpFile, buf.Bytes(), 0600)
+			exec.Command("vtysh", "-f", tmpFile).Run()
+			os.Remove(tmpFile)
 			updated = true
 		}
 
@@ -324,15 +335,25 @@ func ospfController() {
 			log.Printf("[WARN] query rowsAdd err: %v", err)
 		}
 
-		for _, ip := range toAdd {
-			addOspfLog("[ADD] " + ip + " to published_set")
-			exec.Command("vtysh", "-c", "conf t", "-c", fmt.Sprintf("ip route %s 127.0.0.1 tag 100", func(s string) string {
-				if strings.Contains(s, "/") {
-					return s
+		if len(toAdd) > 0 {
+			var buf bytes.Buffer
+			buf.WriteString("conf t\n")
+			tx, _ := db.Begin()
+			for _, ip := range toAdd {
+				addOspfLog("[ADD] " + ip + " to published_set")
+				routeStr := ip
+				if !strings.Contains(ip, "/") {
+					routeStr += "/32"
 				}
-				return s + "/32"
-			}(ip))).Run()
-			db.Exec("UPDATE routes_table SET status='published', last_seen=datetime('now'), miss_count=0 WHERE ip=?", ip)
+				buf.WriteString(fmt.Sprintf("ip route %s 127.0.0.1 tag 100\n", routeStr))
+				tx.Exec("UPDATE routes_table SET status='published', last_seen=datetime('now'), miss_count=0 WHERE ip=?", ip)
+			}
+			tx.Commit()
+
+			tmpFile := "/tmp/proxygw_vtysh_add.conf"
+			os.WriteFile(tmpFile, buf.Bytes(), 0600)
+			exec.Command("vtysh", "-f", tmpFile).Run()
+			os.Remove(tmpFile)
 			updated = true
 		}
 
@@ -907,14 +928,16 @@ func syncStaticRoutesToOSPF(mode string) {
 		oldRows.Close()
 	}
 
+	txSync, _ := db.Begin()
 	for _, ipStr := range toDelete {
-		db.Exec("UPDATE routes_table SET miss_count=99, ttl=0, last_seen=datetime('now', '-1 hour') WHERE ip=?", ipStr)
+		txSync.Exec("UPDATE routes_table SET miss_count=99, ttl=0, last_seen=datetime('now', '-1 hour') WHERE ip=?", ipStr)
 	}
 
 	for _, ipStr := range staticIPs {
 		// Optimized ON CONFLICT to avoid resetting status='candidate' if it's already published
-		db.Exec("INSERT INTO routes_table (ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, 'static_rule', 'static', datetime('now', '-61 seconds'), datetime('now'), 999999999, 'candidate', 0) ON CONFLICT(ip) DO UPDATE SET source='static', ttl=999999999, miss_count=0, last_seen=datetime('now')", ipStr)
+		txSync.Exec("INSERT INTO routes_table (ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, 'static_rule', 'static', datetime('now', '-61 seconds'), datetime('now'), 999999999, 'candidate', 0) ON CONFLICT(ip) DO UPDATE SET source='static', ttl=999999999, miss_count=0, last_seen=datetime('now')", ipStr)
 	}
+	txSync.Commit()
 }
 
 func domainIPUpdater() {
