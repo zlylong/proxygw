@@ -743,91 +743,7 @@ func applyXrayConfig() error {
 	}
 	config["routing"].(map[string]interface{})["rules"] = rules
 
-	// Sync static IP rules to OSPF
-	var staticIPs []string
-	staticIPsMap := make(map[string]bool)
-	staticRows, err := db.Query("SELECT value FROM rules WHERE type='ip' AND policy LIKE 'proxy%'")
-	if err == nil {
-		for staticRows.Next() {
-			var ip string
-			if err := staticRows.Scan(&ip); err == nil {
-				staticIPs = append(staticIPs, ip)
-				staticIPsMap[ip] = true
-			}
-		}
-		if err := staticRows.Err(); err != nil {
-			log.Printf("[WARN] staticRows err: %v", err)
-		}
-		staticRows.Close()
-	}
-
-	geoipRows, err := db.Query("SELECT value FROM rules WHERE (type='geoip' OR type='geosite') AND policy LIKE 'proxy%'")
-	if err == nil {
-		for geoipRows.Next() {
-			var tag string
-			if err := geoipRows.Scan(&tag); err == nil {
-				ips := extractGeoIPs(getPath("core", "mosdns", "geoip.dat"), tag)
-				for _, ip := range ips {
-					staticIPs = append(staticIPs, ip)
-					staticIPsMap[ip] = true
-				}
-			}
-		}
-		geoipRows.Close()
-	}
-
-	// Mode C: Support Domain Extraction to IP
-	if mode == "C" {
-		domainRows, err := db.Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")
-		if err == nil {
-			for domainRows.Next() {
-				var domain string
-				if err := domainRows.Scan(&domain); err == nil {
-					ips, err := net.LookupIP(domain)
-					if err == nil {
-						for _, ip := range ips {
-							if ipv4 := ip.To4(); ipv4 != nil {
-								ipStr := ipv4.String()
-								if !staticIPsMap[ipStr] {
-									staticIPs = append(staticIPs, ipStr)
-									staticIPsMap[ipStr] = true
-								}
-							}
-						}
-					} else {
-						log.Printf("[WARN] Domain rule %s resolution failed: %v", domain, err)
-					}
-				}
-			}
-			domainRows.Close()
-		}
-	}
-
-	// Mark removed static rules for deletion by ospfController
-	var toDelete []string
-	oldRows, err := db.Query("SELECT ip FROM routes_table WHERE source='static'")
-	if err == nil {
-		for oldRows.Next() {
-			var ip string
-			if err := oldRows.Scan(&ip); err == nil {
-				if !staticIPsMap[ip] {
-					toDelete = append(toDelete, ip)
-				}
-			}
-		}
-		if err := oldRows.Err(); err != nil {
-			log.Printf("[WARN] oldRows err: %v", err)
-		}
-		oldRows.Close()
-	}
-
-	for _, ipStr := range toDelete {
-		db.Exec("UPDATE routes_table SET miss_count=99, ttl=0, last_seen=datetime('now', '-1 hour') WHERE ip=?", ipStr)
-	}
-
-	for _, ipStr := range staticIPs {
-		db.Exec("INSERT INTO routes_table (ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, 'static_rule', 'static', datetime('now', '-61 seconds'), datetime('now'), 999999999, 'candidate', 0) ON CONFLICT(ip) DO UPDATE SET source='static', status='candidate', first_seen=datetime('now', '-61 seconds'), ttl=999999999, miss_count=0", ipStr)
-	}
+	syncStaticRoutesToOSPF(mode)
 
 	configData, _ := json.MarshalIndent(config, "", "  ")
 
@@ -928,12 +844,106 @@ route-map OSPF-EXPORT permit 10
 	}
 }
 
+
+func syncStaticRoutesToOSPF(mode string) {
+	var staticIPs []string
+	staticIPsMap := make(map[string]bool)
+	staticRows, err := db.Query("SELECT value FROM rules WHERE type='ip' AND policy LIKE 'proxy%'")
+	if err == nil {
+		for staticRows.Next() {
+			var ip string
+			if err := staticRows.Scan(&ip); err == nil {
+				staticIPs = append(staticIPs, ip)
+				staticIPsMap[ip] = true
+			}
+		}
+		staticRows.Close()
+	}
+
+	geoipRows, err := db.Query("SELECT value FROM rules WHERE (type='geoip' OR type='geosite') AND policy LIKE 'proxy%'")
+	if err == nil {
+		for geoipRows.Next() {
+			var tag string
+			if err := geoipRows.Scan(&tag); err == nil {
+				ips := extractGeoIPs(getPath("core", "mosdns", "geoip.dat"), tag)
+				for _, ip := range ips {
+					staticIPs = append(staticIPs, ip)
+					staticIPsMap[ip] = true
+				}
+			}
+		}
+		geoipRows.Close()
+	}
+
+	if mode == "C" {
+		domainRows, err := db.Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")
+		if err == nil {
+			for domainRows.Next() {
+				var domain string
+				if err := domainRows.Scan(&domain); err == nil {
+					ips, err := net.LookupIP(domain)
+					if err == nil {
+						for _, ip := range ips {
+							if ipv4 := ip.To4(); ipv4 != nil {
+								ipStr := ipv4.String()
+								if !staticIPsMap[ipStr] {
+									staticIPs = append(staticIPs, ipStr)
+									staticIPsMap[ipStr] = true
+								}
+							}
+						}
+					}
+				}
+			}
+			domainRows.Close()
+		}
+	}
+
+	var toDelete []string
+	oldRows, err := db.Query("SELECT ip FROM routes_table WHERE source='static'")
+	if err == nil {
+		for oldRows.Next() {
+			var ip string
+			if err := oldRows.Scan(&ip); err == nil {
+				if !staticIPsMap[ip] {
+					toDelete = append(toDelete, ip)
+				}
+			}
+		}
+		oldRows.Close()
+	}
+
+	for _, ipStr := range toDelete {
+		db.Exec("UPDATE routes_table SET miss_count=99, ttl=0, last_seen=datetime('now', '-1 hour') WHERE ip=?", ipStr)
+	}
+
+	for _, ipStr := range staticIPs {
+		// Optimized ON CONFLICT to avoid resetting status='candidate' if it's already published
+		db.Exec("INSERT INTO routes_table (ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, 'static_rule', 'static', datetime('now', '-61 seconds'), datetime('now'), 999999999, 'candidate', 0) ON CONFLICT(ip) DO UPDATE SET source='static', ttl=999999999, miss_count=0, last_seen=datetime('now')", ipStr)
+	}
+}
+
+func domainIPUpdater() {
+	ticker := time.NewTicker(5 * time.Minute)
+	for range ticker.C {
+		var mode string
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
+			mode = "A"
+		}
+		if mode == "C" {
+			// Periodically sync to catch DNS/CDN IP changes
+			syncStaticRoutesToOSPF(mode)
+		}
+	}
+}
+
 func main() {
 	initDB()
 	go startTrafficMonitor()
 	syncFRRConfig()
 	go ospfController()
 	go cronUpdater()
+	go domainIPUpdater()
 	applyMosdnsConfig()
 	applyXrayConfig()
 	
