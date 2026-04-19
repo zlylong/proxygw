@@ -86,5 +86,6 @@ ProxyGW 设计了三种物理隔离的网络接管模式，以适应不同级别
 
 - [XTLS/Xray-core](https://github.com/XTLS/Xray-core) - 提供了极其强大且高性能的透明代理与协议卸载能力。
 - [IrineSistiana/mosdns](https://github.com/IrineSistiana/mosdns) - 提供了灵活且高效的 DNS 转发、GeoIP 分流与防泄漏解析引擎。
+- [Loyalsoldier/v2ray-rules-dat](https://github.com/loyalsoldier/v2ray-rules-dat) - 提供了极其全面且高频更新的地理数据包（GeoSite/GeoIP），是实现精准路由分流的基石。
 
 感谢所有开源贡献者为构建更自由、开放的网络环境所做出的无私奉献！
