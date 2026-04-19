@@ -3,15 +3,20 @@ package remote_deploy
 import (
 	"database/sql"
 	"fmt"
-	"math/rand"
+	"crypto/rand"
+	"math/big"
 	"sync"
-	"time"
 )
 
-var (
-	poolMutex sync.Mutex
-	rng       = rand.New(rand.NewSource(time.Now().UnixNano()))
-)
+var poolMutex sync.Mutex
+
+func randIntn(n int) int {
+	val, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return 0
+	}
+	return int(val.Int64())
+}
 
 // GenerateUniquePort finds an unused port between min and max that is not used by local nodes or remote nodes
 func GenerateUniquePort(db *sql.DB, minPort, maxPort int) (int, error) {
@@ -47,7 +52,7 @@ func GenerateUniquePort(db *sql.DB, minPort, maxPort int) (int, error) {
 
 	// Try up to 100 times to find a random free port
 	for i := 0; i < 100; i++ {
-		p := minPort + rng.Intn(maxPort-minPort+1)
+		p := minPort + randIntn(maxPort-minPort+1)
 		if !usedPorts[p] {
 			return p, nil
 		}
@@ -75,8 +80,8 @@ func GenerateUniqueWGTunnel(db *sql.DB) (string, string, error) {
 	}
 
 	for i := 0; i < 200; i++ {
-		x := 10 + rng.Intn(200) // 10.10.x to 10.210.x
-		y := rng.Intn(254)
+		x := 10 + randIntn(200) // 10.10.x to 10.210.x
+		y := randIntn(254)
 
 		serverAddr := fmt.Sprintf("10.%d.%d.1/24", x, y)
 		clientAddr := fmt.Sprintf("10.%d.%d.2/32", x, y)
