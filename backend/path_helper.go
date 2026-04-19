@@ -18,9 +18,3 @@ func getPath(elem ...string) string {
 	return filepath.Join(paths...)
 }
 
-func getRelativePath(p string) string {
-	if strings.HasPrefix(p, "../") {
-		return filepath.Join(getAppRoot(), strings.TrimPrefix(p, "../"))
-	}
-	return p
-}

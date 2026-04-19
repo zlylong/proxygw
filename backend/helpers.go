@@ -98,18 +98,6 @@ func normalizeUpstreamCSV(raw string) (string, bool) {
 	return strings.Join(cleaned, ","), true
 }
 
-func isTrustedOrigin(origin, host string) bool {
-	if strings.TrimSpace(origin) == "" {
-		return true
-	}
-	u, err := url.Parse(origin)
-	if err != nil {
-		return false
-	}
-	originHost := strings.Split(u.Host, ":")[0]
-	requestHost := strings.Split(host, ":")[0]
-	return originHost != "" && requestHost != "" && strings.EqualFold(originHost, requestHost)
-}
 
 func getRemoteFileContent(urlStr string) (string, error) {
 	resp, err := httpClient.Get(urlStr)
