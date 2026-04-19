@@ -42,8 +42,8 @@ func GenerateVlessRealityInstallScript(port int, uuid, privateKey, shortId, serv
 		"log": map[string]interface{}{"loglevel": "warning"},
 		"inbounds": []map[string]interface{}{
 			{
-				"listen": "0.0.0.0",
-				"port":   port,
+				"listen":   "0.0.0.0",
+				"port":     port,
 				"protocol": "vless",
 				"settings": map[string]interface{}{
 					"clients": []map[string]interface{}{
@@ -52,19 +52,19 @@ func GenerateVlessRealityInstallScript(port int, uuid, privateKey, shortId, serv
 					"decryption": "none",
 				},
 				"streamSettings": map[string]interface{}{
-					"network": "tcp",
+					"network":  "tcp",
 					"security": "reality",
 					"realitySettings": map[string]interface{}{
-						"show": false,
-						"dest": dest,
-						"xver": 0,
+						"show":        false,
+						"dest":        dest,
+						"xver":        0,
 						"serverNames": []string{serverName},
-						"privateKey": privateKey,
-						"shortIds": []string{shortId},
+						"privateKey":  privateKey,
+						"shortIds":    []string{shortId},
 					},
 				},
 				"sniffing": map[string]interface{}{
-					"enabled": true,
+					"enabled":      true,
 					"destOverride": []string{"http", "tls", "quic"},
 				},
 			},

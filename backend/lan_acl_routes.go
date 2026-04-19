@@ -30,14 +30,14 @@ func registerLanACLRoutes(api *gin.RouterGroup) {
 				})
 			}
 		}
-		
+
 		var defaultPolicy string
 		if err := db.QueryRow("SELECT value FROM settings WHERE key='lan_default_policy'").Scan(&defaultPolicy); err != nil {
 			defaultPolicy = "proxy"
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"acls": acls,
+			"acls":           acls,
 			"default_policy": defaultPolicy,
 		})
 	})
@@ -59,7 +59,7 @@ func registerLanACLRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add acl"})
 			return
 		}
-		
+
 		if err := applyNftablesConfig(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply nftables: " + err.Error()})
 			return
@@ -75,7 +75,7 @@ func registerLanACLRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
 			return
 		}
-		
+
 		if err := applyNftablesConfig(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply nftables: " + err.Error()})
 			return
@@ -83,7 +83,7 @@ func registerLanACLRoutes(api *gin.RouterGroup) {
 
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
-	
+
 	api.POST("/lan_acls/default_policy", func(c *gin.Context) {
 		var req struct {
 			Policy string `json:"policy"`

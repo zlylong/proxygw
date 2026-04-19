@@ -59,7 +59,7 @@ func StartConnectionTracker() {
 		var reader *bufio.Reader
 
 		for {
-						if file == nil {
+			if file == nil {
 				file, err = os.Open(logPath)
 				if err != nil {
 					time.Sleep(2 * time.Second)
@@ -144,7 +144,7 @@ func registerConnectionRoutes(r *gin.RouterGroup) {
 	r.GET("/connections", func(c *gin.Context) {
 		ip := c.Query("ip")
 		allConns := GetRecentConnections()
-		
+
 		if ip == "" {
 			c.JSON(http.StatusOK, gin.H{
 				"success": true,

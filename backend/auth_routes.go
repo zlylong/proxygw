@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"log"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"log"
 )
 
 type SessionInfo struct {
@@ -19,10 +19,12 @@ type SessionInfo struct {
 }
 
 var sessions sync.Map
+
 type LoginAttempt struct {
 	Count    int
 	LastSeen time.Time
 }
+
 var loginAttempts sync.Map
 
 func createSession() (string, error) {
@@ -128,7 +130,7 @@ func registerAuthRoutes(public *gin.RouterGroup, authed *gin.RouterGroup) {
 		if now.Sub(attemptData.LastSeen) > 30*time.Minute {
 			attemptData.Count = 0
 		}
-		
+
 		attempts := attemptData.Count
 		if attempts > 10 {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many attempts"})

@@ -20,7 +20,7 @@ func GenerateUniquePort(db *sql.DB, minPort, maxPort int) (int, error) {
 
 	// Gather used ports
 	usedPorts := make(map[int]bool)
-	
+
 	// Check existing remote WG nodes
 	rowsWg, err := db.Query("SELECT port FROM remote_node_wg")
 	if err == nil {
@@ -52,7 +52,7 @@ func GenerateUniquePort(db *sql.DB, minPort, maxPort int) (int, error) {
 			return p, nil
 		}
 	}
-	
+
 	return 0, fmt.Errorf("no available port found in range %d-%d", minPort, maxPort)
 }
 
@@ -77,10 +77,10 @@ func GenerateUniqueWGTunnel(db *sql.DB) (string, string, error) {
 	for i := 0; i < 200; i++ {
 		x := 10 + rng.Intn(200) // 10.10.x to 10.210.x
 		y := rng.Intn(254)
-		
+
 		serverAddr := fmt.Sprintf("10.%d.%d.1/24", x, y)
 		clientAddr := fmt.Sprintf("10.%d.%d.2/32", x, y)
-		
+
 		if !usedNets[serverAddr] {
 			return serverAddr, clientAddr, nil
 		}

@@ -11,8 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"sort"
-	"strings"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -351,8 +351,6 @@ func triggerCronReload() {
 	}
 }
 
-
-
 func cronUpdater() {
 	for {
 		var enabled, cronTime string
@@ -508,7 +506,7 @@ func applyXrayConfig() error {
 	var defNodeStr string
 	db.QueryRow("SELECT value FROM settings WHERE key='default_node_id'").Scan(&defNodeStr)
 	defaultNodeId, _ := strconv.Atoi(defNodeStr)
-	
+
 	var activeIds []int
 	var proxyTags []string
 	for rows.Next() {
@@ -517,7 +515,6 @@ func applyXrayConfig() error {
 		if err := rows.Scan(&id, &name, &ntype, &address, &port, &uuid, &paramsStr); err != nil {
 			continue
 		}
-
 
 		activeIds = append(activeIds, id)
 
@@ -614,7 +611,6 @@ func applyXrayConfig() error {
 		}
 	}
 
-
 	rRows, err := db.Query("SELECT type, value, policy FROM rules")
 	if err != nil {
 		log.Printf("[WARN] routing rules query err: %v", err)
@@ -682,7 +678,6 @@ func applyXrayConfig() error {
 		log.Printf("[WARN] rRows err: %v", err)
 	}
 
-
 	if len(proxyTags) > 0 {
 		config["observatory"] = map[string]interface{}{
 			"subjectSelector": []string{"proxy-"},
@@ -699,7 +694,7 @@ func applyXrayConfig() error {
 				},
 			},
 		}
-		
+
 		customBalancers := make(map[string]map[string]interface{})
 		actualDefault := 0
 		if len(activeIds) == 1 {
@@ -727,14 +722,14 @@ func applyXrayConfig() error {
 				parts := strings.Split(strings.TrimPrefix(bTag, "bal-ha-"), "-")
 				if len(parts) == 2 {
 					customBalancers[bTag] = map[string]interface{}{
-						"tag": bTag,
-						"selector": []string{"proxy-" + parts[0] + "-out"},
+						"tag":         bTag,
+						"selector":    []string{"proxy-" + parts[0] + "-out"},
 						"fallbackTag": "proxy-" + parts[1] + "-out",
 					}
 				}
 			}
 		}
-		
+
 		balancers := routing["balancers"].([]map[string]interface{})
 		for _, cb := range customBalancers {
 			balancers = append(balancers, cb)
@@ -844,7 +839,6 @@ route-map OSPF-EXPORT permit 10
 	}
 }
 
-
 func syncStaticRoutesToOSPF(mode string) {
 	var staticIPs []string
 	staticIPsMap := make(map[string]bool)
@@ -946,7 +940,7 @@ func main() {
 	go domainIPUpdater()
 	applyMosdnsConfig()
 	applyXrayConfig()
-	
+
 	// Init connection tracking
 	os.MkdirAll("/run/proxygw", 0755)
 	StartConnectionTracker()

@@ -209,7 +209,6 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
-	
 	api.GET("/traffic", func(c *gin.Context) {
 		trafficMutex.Lock()
 		upSpeed := currentSpeedUp
@@ -224,9 +223,9 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 				rows.Scan(&totalUp24, &totalDown24)
 			}
 		}
-		
+
 		c.JSON(200, gin.H{
-			"speed": gin.H{"up": upSpeed, "down": downSpeed},
+			"speed":     gin.H{"up": upSpeed, "down": downSpeed},
 			"total_24h": gin.H{"up": totalUp24.Int64, "down": totalDown24.Int64},
 		})
 	})

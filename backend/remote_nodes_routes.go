@@ -1,12 +1,12 @@
 package main
 
 import (
-	"net/url"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"proxygw/remote_deploy"
 	"github.com/gin-gonic/gin"
+	"net/http"
+	"net/url"
+	"proxygw/remote_deploy"
 )
 
 type RemoteNodeReq struct {
@@ -30,7 +30,7 @@ func registerRemoteNodeRoutes(authed *gin.RouterGroup) {
 	authed.POST("/remote_nodes", createAndDeployRemoteNode)
 	authed.DELETE("/remote_nodes/:id", deleteRemoteNode)
 	authed.POST("/remote_nodes/:id/check", checkRemoteNode)
-	
+
 	// Advanced Features
 	authed.POST("/remote_nodes/batch", batchDeployRemoteNodes)
 	authed.POST("/remote_nodes/:id/regenerate", regenerateRemoteNodeParams)
@@ -76,7 +76,7 @@ func getRemoteNodeDetails(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
-	
+
 	node["id"] = id
 	node["name"] = name
 	node["type"] = ntype
@@ -95,7 +95,7 @@ func getRemoteNodeDetails(c *gin.Context) {
 			node["wg"] = map[string]interface{}{
 				"server_pub": spub, "client_pub": cpub,
 				"endpoint": ep, "port": lport, "tunnel_addr": taddr, "client_addr": caddr,
-				"share_link": remote_deploy.GenerateWireGuardShareLink(cpriv, host, lport, spub, caddr, "", "ProxyGW-"+host, 1420), 
+				"share_link": remote_deploy.GenerateWireGuardShareLink(cpriv, host, lport, spub, caddr, "", "ProxyGW-"+host, 1420),
 			}
 		}
 	} else if ntype == "vless" {
@@ -106,7 +106,7 @@ func getRemoteNodeDetails(c *gin.Context) {
 		if err == nil {
 			node["vless"] = map[string]interface{}{
 				"uuid": "***REDACTED***", "reality_pub": rpub, "short_id": sid,
-				"server_name": sname, "dest": dest, "port": lport, "share_link": slink, 
+				"server_name": sname, "dest": dest, "port": lport, "share_link": slink,
 			}
 		}
 	}
@@ -118,7 +118,6 @@ func logAction(nodeId int64, action, status, logText string) {
 	db.Exec("INSERT INTO remote_node_logs (node_id, action, status, log_text) VALUES (?, ?, ?, ?)", nodeId, action, status, logText)
 }
 
-
 var deploySemaphore = make(chan struct{}, 3)
 
 func doDeployRoutineWrapper(id int64, req RemoteNodeReq, isUpdate bool, params map[string]interface{}) {
@@ -129,7 +128,7 @@ func doDeployRoutineWrapper(id int64, req RemoteNodeReq, isUpdate bool, params m
 
 func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[string]interface{}) {
 	logAction(id, "deploy", "running", "Connecting via SSH...")
-	
+
 	sshClient, err := remote_deploy.Connect(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
 	if err != nil {
 		db.Exec("UPDATE remote_nodes SET status = 'Failed' WHERE id = ?", id)
@@ -137,32 +136,46 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 		return
 	}
 	defer sshClient.Close()
-	
+
 	logAction(id, "deploy", "running", "Connected successfully, generating parameters...")
-	
+
 	var script string
 
 	if req.Type == "wg" {
 		var sPriv, sPub, cPriv, cPub, tunnel, clientIP string
 		var port int
-		
+
 		if params == nil {
 			port, _ = remote_deploy.GenerateUniquePort(db, 10000, 60000)
 			sPriv, sPub, _ = remote_deploy.GenerateWireGuardKeys()
 			cPriv, cPub, _ = remote_deploy.GenerateWireGuardKeys()
 			tunnel, clientIP, _ = remote_deploy.GenerateUniqueWGTunnel(db)
 		} else {
-			if p, ok := params["port"].(float64); ok { port = int(p) }
-			if p, ok := params["server_priv"].(string); ok { sPriv = p }
-			if p, ok := params["server_pub"].(string); ok { sPub = p }
-			if p, ok := params["client_priv"].(string); ok { cPriv = p }
-			if p, ok := params["client_pub"].(string); ok { cPub = p }
-			if p, ok := params["tunnel_addr"].(string); ok { tunnel = p }
-			if p, ok := params["client_addr"].(string); ok { clientIP = p }
+			if p, ok := params["port"].(float64); ok {
+				port = int(p)
+			}
+			if p, ok := params["server_priv"].(string); ok {
+				sPriv = p
+			}
+			if p, ok := params["server_pub"].(string); ok {
+				sPub = p
+			}
+			if p, ok := params["client_priv"].(string); ok {
+				cPriv = p
+			}
+			if p, ok := params["client_pub"].(string); ok {
+				cPub = p
+			}
+			if p, ok := params["tunnel_addr"].(string); ok {
+				tunnel = p
+			}
+			if p, ok := params["client_addr"].(string); ok {
+				clientIP = p
+			}
 		}
-		
+
 		endpoint := fmt.Sprintf("%s:%d", req.SSHHost, port)
-		
+
 		if !isUpdate {
 			db.Exec("INSERT INTO remote_node_wg (node_id, server_priv, server_pub, client_priv, client_pub, endpoint, port, tunnel_addr, client_addr) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 				id, sPriv, sPub, cPriv, cPub, endpoint, port, tunnel, clientIP)
@@ -170,13 +183,13 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 			db.Exec("UPDATE remote_node_wg SET server_priv=?, server_pub=?, client_priv=?, client_pub=?, endpoint=?, port=?, tunnel_addr=?, client_addr=? WHERE node_id=?",
 				sPriv, sPub, cPriv, cPub, endpoint, port, tunnel, clientIP, id)
 		}
-			
+
 		script = remote_deploy.GenerateWGInstallScript(port, sPriv, cPub, tunnel)
-		
+
 	} else if req.Type == "vless" {
 		var rPriv, rPub, uuid, shortId, dest, serverName, shareLink string
 		var port int
-		
+
 		if params == nil {
 			port, _ = remote_deploy.GenerateUniquePort(db, 10000, 60000)
 			rPriv, rPub, _ = remote_deploy.GenerateXrayRealityKeys()
@@ -185,18 +198,32 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 			dest = "www.microsoft.com:443"
 			serverName = "www.microsoft.com"
 		} else {
-			if p, ok := params["port"].(float64); ok { port = int(p) }
-			if p, ok := params["reality_priv"].(string); ok { rPriv = p }
-			if p, ok := params["reality_pub"].(string); ok { rPub = p }
-			if p, ok := params["uuid"].(string); ok { uuid = p }
-			if p, ok := params["short_id"].(string); ok { shortId = p }
-			if p, ok := params["dest"].(string); ok { dest = p }
-			if p, ok := params["server_name"].(string); ok { serverName = p }
+			if p, ok := params["port"].(float64); ok {
+				port = int(p)
+			}
+			if p, ok := params["reality_priv"].(string); ok {
+				rPriv = p
+			}
+			if p, ok := params["reality_pub"].(string); ok {
+				rPub = p
+			}
+			if p, ok := params["uuid"].(string); ok {
+				uuid = p
+			}
+			if p, ok := params["short_id"].(string); ok {
+				shortId = p
+			}
+			if p, ok := params["dest"].(string); ok {
+				dest = p
+			}
+			if p, ok := params["server_name"].(string); ok {
+				serverName = p
+			}
 		}
-		
+
 		shareLink = fmt.Sprintf("vless://%s@%s:%d?security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&type=tcp&flow=xtls-rprx-vision&encryption=none#%s",
 			uuid, req.SSHHost, port, serverName, rPub, shortId, url.QueryEscape(req.Name))
-			
+
 		if !isUpdate {
 			db.Exec("INSERT INTO remote_node_vless (node_id, uuid, reality_priv, reality_pub, short_id, server_name, dest, port, share_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 				id, uuid, rPriv, rPub, shortId, serverName, dest, port, shareLink)
@@ -204,19 +231,19 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 			db.Exec("UPDATE remote_node_vless SET uuid=?, reality_priv=?, reality_pub=?, short_id=?, server_name=?, dest=?, port=?, share_link=? WHERE node_id=?",
 				uuid, rPriv, rPub, shortId, serverName, dest, port, shareLink, id)
 		}
-			
+
 		script = remote_deploy.GenerateVlessRealityInstallScript(port, uuid, rPriv, shortId, serverName, dest)
 	}
-	
+
 	logAction(id, "deploy", "running", "Executing installation script on remote host...")
 	_, _, err = sshClient.RunCommand(script)
-	
+
 	if err != nil {
 		db.Exec("UPDATE remote_nodes SET status = 'Failed' WHERE id = ?", id)
 		logAction(id, "deploy", "failed", fmt.Sprintf("Deployment failed: %v", err))
 		return
 	}
-	
+
 	db.Exec("UPDATE remote_nodes SET status = 'Online' WHERE id = ?", id)
 	logAction(id, "deploy", "success", "Deployment successful. (Detailed output redacted for security)")
 }
@@ -259,7 +286,7 @@ func batchDeployRemoteNodes(c *gin.Context) {
 
 func deleteRemoteNode(c *gin.Context) {
 	id := c.Param("id")
-	
+
 	req, err := fetchNodeReq(id)
 	if err == nil {
 		go func(req RemoteNodeReq) {
@@ -299,7 +326,7 @@ func checkRemoteNode(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
-	
+
 	client, err := remote_deploy.Connect(host, port, user, authType, credential, hostKey)
 	if err != nil {
 		db.Exec("UPDATE remote_nodes SET status = 'Offline' WHERE id = ?", id)
@@ -308,14 +335,18 @@ func checkRemoteNode(c *gin.Context) {
 		return
 	}
 	defer client.Close()
-	
+
 	cmd := "systemctl is-active xray"
-	if ntype == "wg" { cmd = "systemctl is-active wg-quick@wg0" }
-	
+	if ntype == "wg" {
+		cmd = "systemctl is-active wg-quick@wg0"
+	}
+
 	out, _, err := client.RunCommand(cmd)
 	status := "Online"
-	if err != nil || out == "" { status = "Offline" }
-	
+	if err != nil || out == "" {
+		status = "Offline"
+	}
+
 	db.Exec("UPDATE remote_nodes SET status = ? WHERE id = ?", status, id)
 	c.JSON(http.StatusOK, gin.H{"success": true, "status": status})
 }
@@ -353,15 +384,15 @@ func regenerateRemoteNodeParams(c *gin.Context) {
 			oldParams = map[string]interface{}{"uuid": uuid, "reality_priv": rpriv, "reality_pub": rpub, "short_id": sid, "server_name": sname, "dest": dest, "port": lport, "share_link": slink}
 		}
 	}
-	
+
 	paramsJSON, _ := json.Marshal(oldParams)
 	db.Exec("INSERT INTO remote_node_history (node_id, type, params) VALUES (?, ?, ?)", id, req.Type, string(paramsJSON))
 
 	db.Exec("UPDATE remote_nodes SET status = 'Deploying' WHERE id = ?", id)
-	
+
 	var intId int64
 	fmt.Sscanf(id, "%d", &intId)
-	
+
 	go doDeployRoutineWrapper(intId, req, true, nil)
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Regeneration started"})
 }
@@ -383,13 +414,17 @@ func getRemoteNodeHistory(c *gin.Context) {
 			history = append(history, map[string]interface{}{"id": hid, "params": pjson, "created_at": cat})
 		}
 	}
-	if history == nil { history = []map[string]interface{}{} }
+	if history == nil {
+		history = []map[string]interface{}{}
+	}
 	c.JSON(http.StatusOK, history)
 }
 
 func rollbackRemoteNode(c *gin.Context) {
 	id := c.Param("id")
-	var reqBody struct { HistoryId int `json:"history_id"` }
+	var reqBody struct {
+		HistoryId int `json:"history_id"`
+	}
 	if err := c.ShouldBindJSON(&reqBody); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -411,10 +446,10 @@ func rollbackRemoteNode(c *gin.Context) {
 	json.Unmarshal([]byte(pjson), &oldParams)
 
 	db.Exec("UPDATE remote_nodes SET status = 'Deploying' WHERE id = ?", id)
-	
+
 	var intId int64
 	fmt.Sscanf(id, "%d", &intId)
-	
+
 	go doDeployRoutineWrapper(intId, req, true, oldParams)
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Rollback started"})
 }

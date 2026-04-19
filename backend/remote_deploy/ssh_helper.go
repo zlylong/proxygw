@@ -19,15 +19,15 @@ type SSHClient struct {
 func getStrictHostKeyCallback(expectedHostKey string) ssh.HostKeyCallback {
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		fingerprint := "SHA256:" + base64.RawStdEncoding.EncodeToString(func(k []byte) []byte { h := sha256.Sum256(k); return h[:] }(key.Marshal()))
-		
+
 		if expectedHostKey == "" {
 			return fmt.Errorf("Strict Host Key checking failed. The server's fingerprint is %s. Please update the node configuration with this fingerprint to connect securely.", fingerprint)
 		}
-		
+
 		if expectedHostKey == fingerprint || expectedHostKey == base64.StdEncoding.EncodeToString(key.Marshal()) {
 			return nil
 		}
-		
+
 		return fmt.Errorf("Host key verification failed! Expected %s but got %s", expectedHostKey, fingerprint)
 	}
 }

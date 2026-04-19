@@ -9,29 +9,40 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 func registerDNSRoutes(api *gin.RouterGroup) {
 	api.GET("/dns", func(c *gin.Context) {
 		var local, remote, lazy, mode string
 		if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local); err == sql.ErrNoRows {
 			local = "119.29.29.29,223.5.5.5"
 			db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_local', '119.29.29.29,223.5.5.5')")
-		} else if err != nil { c.JSON(500, gin.H{"error": "db error"}); return }
+		} else if err != nil {
+			c.JSON(500, gin.H{"error": "db error"})
+			return
+		}
 
 		if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_remote'").Scan(&remote); err == sql.ErrNoRows {
 			remote = "1.1.1.1,8.8.8.8"
 			db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_remote', '1.1.1.1,8.8.8.8')")
-		} else if err != nil { c.JSON(500, gin.H{"error": "db error"}); return }
+		} else if err != nil {
+			c.JSON(500, gin.H{"error": "db error"})
+			return
+		}
 
 		if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_lazy'").Scan(&lazy); err == sql.ErrNoRows {
 			lazy = "true"
 			db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_lazy', 'true')")
-		} else if err != nil { c.JSON(500, gin.H{"error": "db error"}); return }
+		} else if err != nil {
+			c.JSON(500, gin.H{"error": "db error"})
+			return
+		}
 
 		if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_mode'").Scan(&mode); err == sql.ErrNoRows {
 			mode = "smart"
 			db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_mode', 'smart')")
-		} else if err != nil { c.JSON(500, gin.H{"error": "db error"}); return }
+		} else if err != nil {
+			c.JSON(500, gin.H{"error": "db error"})
+			return
+		}
 		if strings.TrimSpace(mode) == "" {
 			mode = "smart"
 			db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('dns_mode', 'smart')")
@@ -86,6 +97,5 @@ func registerDNSRoutes(api *gin.RouterGroup) {
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
-
 
 }

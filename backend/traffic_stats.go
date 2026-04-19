@@ -17,10 +17,10 @@ type XrayStat struct {
 }
 
 var (
-	trafficMutex sync.Mutex
+	trafficMutex     sync.Mutex
 	currentSpeedUp   int64
 	currentSpeedDown int64
-	
+
 	lastTotalUp   int64
 	lastTotalDown int64
 )
@@ -40,12 +40,12 @@ func initTrafficDB() {
 
 func startTrafficMonitor() {
 	initTrafficDB()
-	
+
 	ticker := time.NewTicker(2 * time.Second)
 	saveTicker := time.NewTicker(5 * time.Minute)
-	
+
 	var accumUp, accumDown int64
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -59,12 +59,12 @@ func startTrafficMonitor() {
 				trafficMutex.Unlock()
 				continue
 			}
-			
+
 			var stats XrayStat
 			if err := json.Unmarshal(out, &stats); err != nil {
 				continue
 			}
-			
+
 			var totalUp, totalDown int64
 			for _, s := range stats.Stat {
 				if strings.Contains(s.Name, ">>>uplink") && !strings.Contains(s.Name, "api_inbound") {
@@ -74,24 +74,28 @@ func startTrafficMonitor() {
 					totalDown += s.Value
 				}
 			}
-			
+
 			trafficMutex.Lock()
 			deltaUp := totalUp - lastTotalUp
 			deltaDown := totalDown - lastTotalDown
-			
-			if lastTotalUp == 0 || deltaUp < 0 { deltaUp = 0 }
-			if lastTotalDown == 0 || deltaDown < 0 { deltaDown = 0 }
-			
+
+			if lastTotalUp == 0 || deltaUp < 0 {
+				deltaUp = 0
+			}
+			if lastTotalDown == 0 || deltaDown < 0 {
+				deltaDown = 0
+			}
+
 			currentSpeedUp = deltaUp / 2
 			currentSpeedDown = deltaDown / 2
-			
+
 			lastTotalUp = totalUp
 			lastTotalDown = totalDown
-			
+
 			accumUp += deltaUp
 			accumDown += deltaDown
 			trafficMutex.Unlock()
-			
+
 		case <-saveTicker.C:
 			trafficMutex.Lock()
 			saveUp := accumUp
@@ -99,7 +103,7 @@ func startTrafficMonitor() {
 			accumUp = 0
 			accumDown = 0
 			trafficMutex.Unlock()
-			
+
 			if saveUp > 0 || saveDown > 0 {
 				db.Exec(`INSERT INTO traffic_history (up_bytes, down_bytes) VALUES (?, ?)`, saveUp, saveDown)
 			}

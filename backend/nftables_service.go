@@ -3,9 +3,9 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"strings"
 	"os"
 	"os/exec"
+	"strings"
 	"text/template"
 )
 
@@ -99,28 +99,40 @@ func applyNftablesConfig() error {
 				if err := rows.Scan(&t, &v, &p); err == nil {
 					if t == "mac" {
 						if p == "proxy" {
-							if macProxy != "" { macProxy += ", " }
+							if macProxy != "" {
+								macProxy += ", "
+							}
 							macProxy += v
 						} else if p == "direct" {
-							if macDirect != "" { macDirect += ", " }
+							if macDirect != "" {
+								macDirect += ", "
+							}
 							macDirect += v
 						}
 					} else if t == "ip" {
 						isIPv6 := strings.Contains(v, ":")
 						if p == "proxy" {
 							if isIPv6 {
-								if ip6Proxy != "" { ip6Proxy += ", " }
+								if ip6Proxy != "" {
+									ip6Proxy += ", "
+								}
 								ip6Proxy += v
 							} else {
-								if ipProxy != "" { ipProxy += ", " }
+								if ipProxy != "" {
+									ipProxy += ", "
+								}
 								ipProxy += v
 							}
 						} else if p == "direct" {
 							if isIPv6 {
-								if ip6Direct != "" { ip6Direct += ", " }
+								if ip6Direct != "" {
+									ip6Direct += ", "
+								}
 								ip6Direct += v
 							} else {
-								if ipDirect != "" { ipDirect += ", " }
+								if ipDirect != "" {
+									ipDirect += ", "
+								}
 								ipDirect += v
 							}
 						}
@@ -147,7 +159,6 @@ func applyNftablesConfig() error {
 		IP6Direct:     ip6Direct,
 		DefaultPolicy: defaultPolicy,
 	}
-
 
 	tmpl, err := template.New("nftables").Parse(nftablesTmpl)
 	if err != nil {

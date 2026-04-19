@@ -17,7 +17,7 @@ func registerConfigRoutes(api *gin.RouterGroup) {
 		c.String(http.StatusOK, string(data))
 	})
 
-		api.GET("/config/mosdns", func(c *gin.Context) {
+	api.GET("/config/mosdns", func(c *gin.Context) {
 		data, err := os.ReadFile(getPath("core", "mosdns/config.yaml"))
 		if err != nil {
 			c.String(http.StatusInternalServerError, "read config failed")

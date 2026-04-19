@@ -7,13 +7,13 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"syscall"
+	"net/url"
 	"os/exec"
 	"regexp"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -48,14 +48,14 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db rows error"})
 			return
 		}
-		
+
 		var activeCount int
 		for _, n := range nodes {
 			if n["active"] == true || n["active"] == int64(1) || n["active"] == 1 {
 				activeCount++
 			}
 		}
-		
+
 		if activeCount == 1 {
 			for _, n := range nodes {
 				if n["active"] == true || n["active"] == int64(1) || n["active"] == 1 {
@@ -86,7 +86,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 	api.POST("/nodes", func(c *gin.Context) {
 		var n struct {
 			Name, Group, Type, Address, UUID, Params string
-			Port                             int
+			Port                                     int
 		}
 		if c.BindJSON(&n) != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
@@ -115,7 +115,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 				}
 				var v struct {
 					Ps, Add, Id, Net, Tls, Sni, Path, Host string
-					Port        interface{}
+					Port                                   interface{}
 				}
 				if err := json.Unmarshal(decoded, &v); err != nil {
 					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid vmess payload"})
@@ -132,22 +132,36 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 				}
 
 				streamSettings := make(map[string]interface{})
-				if v.Net != "" { streamSettings["network"] = v.Net }
-				if v.Tls != "" { streamSettings["security"] = v.Tls }
-				
+				if v.Net != "" {
+					streamSettings["network"] = v.Net
+				}
+				if v.Tls != "" {
+					streamSettings["security"] = v.Tls
+				}
+
 				if v.Net == "ws" {
 					wsSettings := make(map[string]interface{})
-					if v.Path != "" { wsSettings["path"] = v.Path }
-					if v.Host != "" { wsSettings["headers"] = map[string]string{"Host": v.Host} }
-					if len(wsSettings) > 0 { streamSettings["wsSettings"] = wsSettings }
+					if v.Path != "" {
+						wsSettings["path"] = v.Path
+					}
+					if v.Host != "" {
+						wsSettings["headers"] = map[string]string{"Host": v.Host}
+					}
+					if len(wsSettings) > 0 {
+						streamSettings["wsSettings"] = wsSettings
+					}
 				} else if v.Net == "grpc" {
-					if v.Path != "" { streamSettings["grpcSettings"] = map[string]string{"serviceName": v.Path} }
+					if v.Path != "" {
+						streamSettings["grpcSettings"] = map[string]string{"serviceName": v.Path}
+					}
 				}
-				
+
 				if v.Tls == "tls" {
-					if v.Sni != "" { streamSettings["tlsSettings"] = map[string]string{"serverName": v.Sni} }
+					if v.Sni != "" {
+						streamSettings["tlsSettings"] = map[string]string{"serverName": v.Sni}
+					}
 				}
-				
+
 				finalParamsVmess := map[string]interface{}{}
 				if len(streamSettings) > 0 {
 					finalParamsVmess["streamSettings"] = streamSettings
@@ -235,7 +249,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 				}
 			}
 		}
-				if strings.HasPrefix(req.Url, "wireguard://") {
+		if strings.HasPrefix(req.Url, "wireguard://") {
 			parsedUrl, err := url.Parse(req.Url)
 			if err == nil {
 				clientPrivKey := parsedUrl.User.Username()
@@ -247,34 +261,38 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 					return
 				}
 				alias, _ := url.QueryUnescape(parsedUrl.Fragment)
-				if alias == "" { alias = host }
+				if alias == "" {
+					alias = host
+				}
 
 				query := parsedUrl.Query()
-				
+
 				peer := map[string]interface{}{
-				    "endpoint": fmt.Sprintf("%s:%d", host, portInt),
-				    "publicKey": query.Get("publickey"),
+					"endpoint":  fmt.Sprintf("%s:%d", host, portInt),
+					"publicKey": query.Get("publickey"),
 				}
-				
+
 				settings := map[string]interface{}{
-				    "secretKey": clientPrivKey,
-				    "peers": []map[string]interface{}{peer},
+					"secretKey": clientPrivKey,
+					"peers":     []map[string]interface{}{peer},
 				}
-				
+
 				if addrStr := query.Get("address"); addrStr != "" {
-				    settings["address"] = []string{addrStr}
+					settings["address"] = []string{addrStr}
 				}
 				if mtuStr := query.Get("mtu"); mtuStr != "" {
-					if mtu, err := strconv.Atoi(mtuStr); err == nil { settings["mtu"] = mtu }
+					if mtu, err := strconv.Atoi(mtuStr); err == nil {
+						settings["mtu"] = mtu
+					}
 				}
 				if rsv := query.Get("reserved"); rsv != "" {
-					settings["reserved"] = []int{0,0,0} // Mocked reserved formatting, actually needs parsing if it's string, but usually it's array of uint8. We can leave it as string or omit if empty. 
+					settings["reserved"] = []int{0, 0, 0} // Mocked reserved formatting, actually needs parsing if it's string, but usually it's array of uint8. We can leave it as string or omit if empty.
 					// For Xray wireguard, reserved is optional. Xray accepts [0,0,0] format.
 					// Let's just omit it if it's too complex or just set it as string if Xray supports string reserved in some versions. Wait, Xray reserved is usually array of numbers. Let's just pass it if it exists.
 				}
-				
+
 				params := map[string]interface{}{
-				    "settings": settings,
+					"settings": settings,
 				}
 
 				paramsJson, _ := json.Marshal(params)
@@ -311,9 +329,9 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				
+
 				ping := -1
-				
+
 				if strings.ToLower(nType) == "wireguard" || strings.ToLower(nType) == "wg" {
 					out, _ := exec.Command("ping", "-c", "1", "-W", "2", addr).Output()
 					if strings.Contains(string(out), "1 received") || strings.Contains(string(out), "1 packets received") {
@@ -335,11 +353,14 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 						Timeout: 2 * time.Second,
 						Control: func(network, address string, c syscall.RawConn) error {
 							return c.Control(func(fd uintptr) {
-								err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, 36, 2); if err != nil { log.Printf("[WARN] setsockopt SO_MARK error: %v", err) }
+								err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, 36, 2)
+								if err != nil {
+									log.Printf("[WARN] setsockopt SO_MARK error: %v", err)
+								}
 							})
 						},
 					}
-					conn, err := d.Dial("tcp", fmt.Sprintf("%s:%d", addr, p))
+					conn, err := d.Dial("tcp", net.JoinHostPort(addr, fmt.Sprintf("%d", p)))
 					if err == nil {
 						ping = int(time.Since(start).Milliseconds())
 						if ping == 0 {
@@ -348,7 +369,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 						conn.Close()
 					}
 				}
-				
+
 				if _, err := db.Exec("UPDATE nodes SET ping=? WHERE id=?", ping, nid); err != nil {
 					log.Printf("[WARN] update node ping failed id=%d err=%v", nid, err)
 				}
